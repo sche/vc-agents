@@ -77,13 +77,20 @@ def create_deal(org_id: str, parsed_deal: dict) -> Deal | None:
     """Create deal if it doesn't exist."""
     org_name = parsed_deal["project_name"]
 
+    # Get amount and handle None
+    amount_usd = parsed_deal.get("amount_usd")
+    # Skip deals without amount information
+    if amount_usd is None:
+        logger.debug(f"Skipping deal without amount: {org_name} - {parsed_deal.get('round')}")
+        return None
+
     # Generate unique hash for idempotency
     announced_date = parsed_deal["announced_on"] if parsed_deal.get("announced_on") else datetime.now()
     uniq_hash = generate_deal_uniq_hash(
         org_name,
         announced_date,
         parsed_deal.get("round"),
-        parsed_deal.get("amount_usd"),
+        amount_usd,
     )
 
     with get_db() as db:
@@ -99,7 +106,7 @@ def create_deal(org_id: str, parsed_deal: dict) -> Deal | None:
         deal = Deal(
             org_id=org_id,
             round=parsed_deal.get("round"),
-            amount_eur=parsed_deal.get("amount_usd"),  # TODO: convert to EUR
+            amount_usd=amount_usd,
             amount_original=parsed_deal.get("amount_usd"),
             currency_original="USD",
             announced_on=announced_date.date() if announced_date else None,

@@ -115,10 +115,14 @@ class DefiLlamaLoader:
         if "otherInvestors" in raise_data and raise_data["otherInvestors"]:
             investors.extend(raise_data["otherInvestors"])
 
+        # Handle amount - can be None, 0, or a number
+        amount = raise_data.get("amount")
+        amount_usd = float(amount) if amount is not None else None
+
         return {
             "project_name": raise_data.get("name", "Unknown"),
             "round": raise_data.get("round", "Unknown"),
-            "amount_usd": float(raise_data.get("amount", 0)),
+            "amount_usd": amount_usd,
             "announced_on": announced_on,
             "investors": investors,
             "source_url": raise_data.get("source", ""),

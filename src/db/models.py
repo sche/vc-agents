@@ -100,7 +100,7 @@ class Deal(Base):
 
     # Deal details
     round: Mapped[str | None] = mapped_column(String(100), index=True)
-    amount_eur: Mapped[float | None] = mapped_column(Numeric(15, 2))
+    amount_usd: Mapped[float | None] = mapped_column(Numeric(15, 2))
     amount_original: Mapped[float | None] = mapped_column(Numeric(15, 2))
     currency_original: Mapped[str | None] = mapped_column(String(10))
 

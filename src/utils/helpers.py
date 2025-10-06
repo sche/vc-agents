@@ -84,7 +84,7 @@ def generate_deal_uniq_hash(
     org_name: str,
     announced_on: datetime,
     round_type: Optional[str],
-    amount_eur: Optional[float],
+    amount_usd: Optional[float],
 ) -> str:
     """
     Generate unique hash for deal idempotency.
@@ -94,7 +94,7 @@ def generate_deal_uniq_hash(
     normalized_name = normalize_company_name(org_name)
     date_str = announced_on.strftime("%Y-%m-%d") if announced_on else ""
     round_str = (round_type or "").lower().strip()
-    amount_str = f"{amount_eur:.2f}" if amount_eur else "0"
+    amount_str = f"{amount_usd:.2f}" if amount_usd else "0"
 
     combined = f"{normalized_name}|{date_str}|{round_str}|{amount_str}"
     return hashlib.sha256(combined.encode()).hexdigest()
