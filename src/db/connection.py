@@ -9,10 +9,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import settings
 
+# Synchronous engine (using psycopg3)
+# Convert postgresql:// to postgresql+psycopg://
+database_url_str = str(settings.database_url)
+if database_url_str.startswith("postgresql://"):
+    database_url_str = database_url_str.replace("postgresql://", "postgresql+psycopg://", 1)
 
-# Synchronous engine
 engine = create_engine(
-    str(settings.database_url),
+    database_url_str,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,

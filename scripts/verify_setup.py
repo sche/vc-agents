@@ -7,6 +7,10 @@ Run this after initial setup to verify everything works.
 import sys
 from pathlib import Path
 
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 # Color codes for terminal output
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -76,34 +80,44 @@ def check_database_connection():
     print("🗄️  Checking database connection...", end=" ")
 
     try:
-        from src.config import settings
         from sqlalchemy import create_engine, text
 
-        engine = create_engine(str(settings.database_url))
+        from src.config import settings
+
+        # Use psycopg3 driver
+        database_url = str(settings.database_url)
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+        engine = create_engine(database_url)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             conn.commit()
 
         print(f"{GREEN}✓ Connected{RESET}")
         return True
-    except ImportError:
-        print(f"{YELLOW}⚠ Dependencies not installed{RESET}")
+    except ImportError as e:
+        print(f"{YELLOW}⚠ Import error: {e}{RESET}")
         return False
     except Exception as e:
         print(f"{RED}✗ Failed: {str(e)}{RESET}")
         print(f"  Check DATABASE_URL in .env")
         return False
-
-
 def check_database_schema():
     """Check if database tables exist"""
     print("📊 Checking database schema...", end=" ")
 
     try:
-        from src.config import settings
         from sqlalchemy import create_engine, inspect
 
-        engine = create_engine(str(settings.database_url))
+        from src.config import settings
+
+        # Use psycopg3 driver
+        database_url = str(settings.database_url)
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+        engine = create_engine(database_url)
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
