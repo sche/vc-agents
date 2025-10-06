@@ -129,7 +129,7 @@ class Deal(Base):
     def __repr__(self) -> str:
         return (
             f"<Deal(id={self.id}, org_id={self.org_id}, "
-            f"round='{self.round}', amount_eur={self.amount_eur})>"
+            f"round='{self.round}', amount_usd={self.amount_usd})>"
         )
 
 

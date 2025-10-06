@@ -73,6 +73,50 @@ def create_or_update_org(parsed_deal: dict) -> str:
             return org_id
 
 
+def create_or_update_vc(vc_name: str, source_url: str) -> str:
+    """Create or update VC organization from investor name. Returns vc_id."""
+    # Generate unique key for deduplication
+    uniq_key = generate_org_uniq_key(vc_name, website=None)
+
+    with get_db() as db:
+        # Check if VC exists by uniq_key
+        stmt = select(Organization).where(Organization.uniq_key == uniq_key)
+        existing_vc = db.execute(stmt).scalar_one_or_none()
+
+        if existing_vc:
+            # Update sources if VC exists
+            existing_vc.sources = existing_vc.sources + [
+                {
+                    "type": "defillama_investor",
+                    "url": source_url,
+                    "imported_at": datetime.utcnow().isoformat(),
+                }
+            ]
+            logger.debug(f"Updated VC: {vc_name}")
+            vc_id = str(existing_vc.id)
+            return vc_id
+        else:
+            # Create new VC
+            vc = Organization(
+                name=vc_name,
+                kind="vc",  # This is a VC investor
+                description=None,
+                sources=[
+                    {
+                        "type": "defillama_investor",
+                        "url": source_url,
+                        "imported_at": datetime.utcnow().isoformat(),
+                    }
+                ],
+                uniq_key=uniq_key,
+            )
+            db.add(vc)
+            db.flush()  # Get the ID
+            vc_id = str(vc.id)
+            logger.info(f"Created VC: {vc_name}")
+            return vc_id
+
+
 def create_deal(org_id: str, parsed_deal: dict) -> Deal | None:
     """Create deal if it doesn't exist."""
     org_name = parsed_deal["project_name"]
@@ -151,6 +195,8 @@ def load_deals(since_days: int = 90, limit: int | None = None) -> dict:
         "total_deals": len(recent_deals),
         "orgs_created": 0,
         "orgs_updated": 0,
+        "vcs_created": 0,
+        "vcs_updated": 0,
         "deals_created": 0,
         "deals_skipped": 0,
         "errors": [],
@@ -176,6 +222,35 @@ def load_deals(since_days: int = 90, limit: int | None = None) -> dict:
                     stats["orgs_created"] += 1
                 else:
                     stats["orgs_updated"] += 1
+
+            # Create/update VCs from investors list
+            investors = parsed.get("investors", [])
+            source_url = parsed.get("source_url", "")
+
+            for investor_name in investors:
+                if investor_name:  # Skip empty strings
+                    try:
+                        # Track VC count before
+                        with get_db() as db:
+                            vc_count_before = db.query(Organization).filter(
+                                Organization.kind == "vc"
+                            ).count()
+
+                        # Create/update VC
+                        vc_id = create_or_update_vc(investor_name, source_url)
+
+                        # Track if VC was created or updated
+                        with get_db() as db:
+                            vc_count_after = db.query(Organization).filter(
+                                Organization.kind == "vc"
+                            ).count()
+                            if vc_count_after > vc_count_before:
+                                stats["vcs_created"] += 1
+                            else:
+                                stats["vcs_updated"] += 1
+                    except Exception as e:
+                        logger.warning(f"Error creating VC '{investor_name}': {str(e)}")
+                        continue
 
             # Create deal
             deal = create_deal(org_id, parsed)
@@ -227,6 +302,8 @@ def main():
     logger.info(f"   Total deals processed: {stats['total_deals']}")
     logger.info(f"   Orgs created: {stats['orgs_created']}")
     logger.info(f"   Orgs updated: {stats['orgs_updated']}")
+    logger.info(f"   VCs created: {stats['vcs_created']}")
+    logger.info(f"   VCs updated: {stats['vcs_updated']}")
     logger.info(f"   Deals created: {stats['deals_created']}")
     logger.info(f"   Deals skipped (duplicates): {stats['deals_skipped']}")
 
