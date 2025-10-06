@@ -13,7 +13,7 @@ help:
 	@echo "  make lint           - Run linters (ruff, mypy)"
 	@echo "  make format         - Format code (black, ruff)"
 	@echo "  make clean          - Remove cache and temp files"
-	@echo "  make run-deals      - Run deals ingestor agent"
+	@echo "  make load-deals     - Load DefiLlama deals (simple script)"
 	@echo "  make run-crawler    - Run VC crawler agent"
 	@echo "  make run-enricher   - Run social enricher agent"
 	@echo "  make run-pipeline   - Run full pipeline"
@@ -79,8 +79,11 @@ clean:
 	rm -rf htmlcov/ .coverage
 
 # Run agents (examples - update paths as needed)
-run-deals:
-	python src/agents/deals_ingestor_orm.py
+load-deals:
+	python scripts/load_defillama_deals.py
+
+load-deals-limit:
+	python scripts/load_defillama_deals.py --limit 50
 
 run-crawler:
 	python -m src.agents.vc_crawler
