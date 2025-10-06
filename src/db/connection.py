@@ -1,61 +1,43 @@
-"""Database connection and session management."""
+"""Database connection setup with SQLAlchemy."""
 
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
-from typing import AsyncGenerator, Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import settings
 
-# Synchronous engine (using psycopg3)
-# Convert postgresql:// to postgresql+psycopg://
-database_url_str = str(settings.database_url)
-if database_url_str.startswith("postgresql://"):
-    database_url_str = database_url_str.replace("postgresql://", "postgresql+psycopg://", 1)
+# Convert postgresql:// to postgresql+psycopg:// for psycopg3 compatibility
+db_url = str(settings.database_url)
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
-engine = create_engine(
-    database_url_str,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-    echo=settings.is_development,
-)
+# Async database URL (using asyncpg driver)
+async_db_url = db_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-)
-
-
-# Async engine (for async operations)
-async_database_url = str(settings.database_url).replace(
-    "postgresql://", "postgresql+asyncpg://")
+# Create engines
+engine = create_engine(db_url, echo=settings.is_development, pool_pre_ping=True)
 async_engine = create_async_engine(
-    async_database_url,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-    echo=settings.is_development,
+    async_db_url, echo=settings.is_development, pool_pre_ping=True
 )
 
-AsyncSessionLocal = sessionmaker(
-    async_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+# Create session factories
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+AsyncSessionLocal = async_sessionmaker(
+    async_engine, class_=AsyncSession, expire_on_commit=False
 )
 
 
 @contextmanager
 def get_db() -> Generator[Session, None, None]:
     """
-    Get a synchronous database session.
+    Context manager for database sessions.
 
     Usage:
         with get_db() as db:
-            result = db.execute(...)
+            db.query(Organization).all()
     """
     db = SessionLocal()
     try:
@@ -71,11 +53,11 @@ def get_db() -> Generator[Session, None, None]:
 @asynccontextmanager
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Get an async database session.
+    Get async database session.
 
     Usage:
         async with get_async_db() as db:
-            result = await db.execute(...)
+            result = await db.execute(select(Organization))
     """
     async with AsyncSessionLocal() as session:
         try:
@@ -86,15 +68,3 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
-
-
-def init_db() -> None:
-    """Initialize database (create tables if needed)."""
-    # Note: In production, use Alembic migrations instead
-    # This is just for development/testing
-    pass
-
-
-def close_db() -> None:
-    """Close database connections."""
-    engine.dispose()

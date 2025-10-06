@@ -6,8 +6,8 @@ help:
 	@echo "  make install        - Install production dependencies"
 	@echo "  make install-dev    - Install all dependencies including dev tools"
 	@echo "  make setup          - Complete setup (venv, deps, db, playwright)"
-	@echo "  make db-create      - Create PostgreSQL database"
-	@echo "  make db-schema      - Apply database schema"
+	@echo "  make db-create      - Create PostgreSQL database (one-time)"
+	@echo "  make db-init        - Initialize database schema from SQLAlchemy models"
 	@echo "  make db-reset       - Drop and recreate database (⚠️  destructive)"
 	@echo "  make test           - Run test suite"
 	@echo "  make lint           - Run linters (ruff, mypy)"
@@ -27,7 +27,7 @@ install-dev:
 	playwright install chromium
 
 # Complete setup
-setup: install-dev db-create db-schema
+setup: install-dev db-init
 	@echo "✅ Setup complete!"
 	@echo "Don't forget to configure your .env file"
 
@@ -37,17 +37,15 @@ verify:
 
 # Database operations
 db-create:
-	createdb vc_agents || echo "Database might already exist"
+	createdb -U vc_user -h localhost vc_agents || echo "Database might already exist"
 
-db-schema:
-	psql vc_agents < db/schema.sql
+db-init:
+	python -m src.db.init_db
 
 db-reset:
 	@echo "⚠️  This will DELETE all data. Press Ctrl+C to cancel, Enter to continue..."
 	@read -r confirm
-	dropdb vc_agents || true
-	createdb vc_agents
-	psql vc_agents < db/schema.sql
+	python -m src.db.init_db --reset
 	@echo "✅ Database reset complete"
 
 # Testing
@@ -82,7 +80,7 @@ clean:
 
 # Run agents (examples - update paths as needed)
 run-deals:
-	python -m src.agents.deals_ingestor
+	python src/agents/deals_ingestor_orm.py
 
 run-crawler:
 	python -m src.agents.vc_crawler
