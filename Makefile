@@ -17,6 +17,11 @@ help:
 	@echo "  make run-crawler    - Run VC crawler agent"
 	@echo "  make run-enricher   - Run social enricher agent"
 	@echo "  make run-pipeline   - Run full pipeline"
+	@echo ""
+	@echo "UI Commands:"
+	@echo "  make retool-start   - Start Retool UI (http://localhost:3000)"
+	@echo "  make retool-stop    - Stop Retool UI"
+	@echo "  make retool-logs    - View Retool logs"
 
 # Installation
 install:
@@ -103,3 +108,22 @@ shell:
 
 check: format lint test
 	@echo "✅ All checks passed!"
+
+# Retool UI
+retool-start:
+	@echo "🚀 Starting Retool..."
+	docker compose -f docker-compose.retool.yml up -d
+	@echo "✅ Retool is starting..."
+	@echo "📍 Access at: http://localhost:3000"
+	@echo "⏳ Wait ~30 seconds for Retool to be ready"
+	@echo "📖 See docs/RETOOL_SETUP.md for connection instructions"
+
+retool-stop:
+	docker compose -f docker-compose.retool.yml down
+
+retool-logs:
+	docker logs -f retool
+
+retool-restart:
+	docker compose -f docker-compose.retool.yml restart
+	@echo "✅ Retool restarted"
