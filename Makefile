@@ -14,6 +14,7 @@ help:
 	@echo "  make format         - Format code (black, ruff)"
 	@echo "  make clean          - Remove cache and temp files"
 	@echo "  make load-deals     - Load DefiLlama deals (simple script)"
+	@echo "  make find-websites  - Find and update VC websites"
 	@echo "  make run-crawler    - Run VC crawler agent"
 	@echo "  make run-enricher   - Run social enricher agent"
 	@echo "  make run-pipeline   - Run full pipeline"
@@ -88,7 +89,10 @@ load-deals:
 	python scripts/load_defillama_deals.py
 
 load-deals-limit:
-	python scripts/load_defillama_deals.py --limit 10
+	python scripts/load_defillama_deals.py --limit 1
+
+find-websites:
+	python -m src.agents.vc_website_finder
 
 run-crawler:
 	python -m src.agents.vc_crawler
