@@ -10,7 +10,7 @@ import streamlit as st
 from sqlalchemy import desc, func
 
 from src.db.connection import get_db
-from src.db.models import AgentRun, Organization, Person, RoleEmployment
+from src.db.models import AgentRun, Deal, Organization, Person, RoleEmployment
 
 # Page config
 st.set_page_config(
@@ -112,7 +112,7 @@ def show_dashboard():
         st.metric(
             "Total People",
             stats['total_people'],
-            f"{stats['people_with_twitter']} with Twitter"
+            f"{stats['people_with_twitter']} with X/Twitter"
         )
 
     with col3:
@@ -208,7 +208,16 @@ def show_orgs():
 
     # Display organizations
     for org in orgs:
-        with st.expander(f"{org['name']}" + (" ✅" if org['website'] else " ⚠️ No website")):
+        # Build status indicator
+        status = ""
+        if not org['website']:
+            status = " ⚠️ No website"
+        elif org['people_count'] == 0:
+            status = " 👥 No team members"
+        else:
+            status = " ✅"
+
+        with st.expander(f"{org['name']}{status}"):
             col1, col2 = st.columns([3, 1])
 
             with col1:
@@ -250,7 +259,7 @@ def show_people():
     with col2:
         enrichment = st.selectbox("Enrichment status", [
             "All",
-            "With Twitter",
+            "With X/Twitter",
             "With Farcaster",
             "With Telegram",
             "Not enriched"
@@ -265,7 +274,7 @@ def show_people():
         if search:
             query = query.filter(Person.full_name.ilike(f'%{search}%'))
 
-        if enrichment == "With Twitter":
+        if enrichment == "With X/Twitter":
             query = query.filter(Person.socials['twitter'].astext.isnot(None))
         elif enrichment == "With Farcaster":
             query = query.filter(Person.socials['farcaster'].astext.isnot(None))
@@ -314,19 +323,45 @@ def show_people():
 
     # Display people
     for person in people:
-        socials = person['socials']
-        twitter = socials.get('twitter', {})
-        farcaster = socials.get('farcaster', {})
+        socials = person['socials'] if isinstance(person['socials'], dict) else {}
+
+        # Handle both old format (nested dict) and new format (flat keys)
+        # Twitter
+        if isinstance(socials.get('twitter'), dict):
+            twitter_username = socials['twitter'].get('username')
+            twitter_confidence = socials['twitter'].get('confidence', 0)
+        else:
+            twitter_username = socials.get('twitter')
+            twitter_confidence = socials.get('twitter_confidence', 0)
+
+        # Farcaster
+        if isinstance(socials.get('farcaster'), dict):
+            farcaster_username = socials['farcaster'].get('username')
+            farcaster_fid = socials['farcaster'].get('fid')
+            farcaster_confidence = socials['farcaster'].get('confidence', 0)
+        else:
+            farcaster_username = socials.get('farcaster')
+            farcaster_fid = socials.get('farcaster_fid')
+            farcaster_confidence = socials.get('farcaster_confidence', 0)
 
         status_icons = []
-        if twitter.get('username'):
+        if twitter_username:
             status_icons.append("🐦")
-        if farcaster.get('username'):
+        if farcaster_username:
             status_icons.append("🟣")
         if person['telegram_handle']:
             status_icons.append("✈️")
 
-        with st.expander(f"{person['full_name']} {' '.join(status_icons)}"):
+        # Build display name with org and role
+        display_name = person['full_name']
+        if person['org_name'] and person['title']:
+            display_name = f"{person['full_name']} • {person['title']} @ {person['org_name']}"
+        elif person['org_name']:
+            display_name = f"{person['full_name']} @ {person['org_name']}"
+        elif person['title']:
+            display_name = f"{person['full_name']} • {person['title']}"
+
+        with st.expander(f"{display_name} {' '.join(status_icons)}"):
             col1, col2 = st.columns([3, 1])
 
             with col1:
@@ -337,15 +372,25 @@ def show_people():
                     st.write(f"**Organization:** {person['org_name']}")
                     st.write(f"**Title:** {person['title']}")
 
-                # Social profiles
-                if twitter.get('username'):
-                    st.write(f"**Twitter:** @{twitter['username']} (confidence: {twitter.get('confidence', 0):.2f})")
-                if farcaster.get('username'):
-                    st.write(f"**Farcaster:** @{farcaster['username']} (confidence: {farcaster.get('confidence', 0):.2f})")
+                # Social profiles section
+                st.write("**Social Profiles:**")
+
+                # Twitter/X
+                if twitter_username:
+                    st.write(f"  🐦 X (Twitter): [@{twitter_username}](https://x.com/{twitter_username}) (confidence: {twitter_confidence:.2f})")
+                else:
+                    st.write("  🐦 X (Twitter): Not found")
+
+                # Farcaster
+                if farcaster_username:
+                    fid_display = f" (FID: {farcaster_fid})" if farcaster_fid else ""
+                    st.write(f"  🟣 Farcaster: [@{farcaster_username}](https://farcaster.xyz/{farcaster_username}){fid_display} (confidence: {farcaster_confidence:.2f})")
+                else:
+                    st.write("  🟣 Farcaster: Not found")
 
                 # Telegram - editable
                 telegram = st.text_input(
-                    "Telegram handle",
+                    "✈️ Telegram handle",
                     value=person['telegram_handle'] or "",
                     key=f"telegram_{person['id']}",
                     placeholder="@username"
@@ -360,7 +405,20 @@ def show_people():
                         st.success("Updated!")
                         st.rerun()
 
-                st.write(f"**Confidence:** {person['telegram_confidence'] or 0:.2f}")
+                # Show all other socials if any
+                known_keys = {'twitter', 'twitter_confidence', 'farcaster', 'farcaster_fid', 'farcaster_confidence'}
+                other_socials = {k: v for k, v in socials.items() if k not in known_keys}
+                if other_socials:
+                    st.write("**Other Socials:**")
+                    for platform, data in other_socials.items():
+                        if isinstance(data, dict):
+                            username = data.get('username', data.get('handle', 'N/A'))
+                            confidence = data.get('confidence', 0)
+                            st.write(f"  • {platform.title()}: {username} (confidence: {confidence:.2f})")
+                        else:
+                            st.write(f"  • {platform.title()}: {data}")
+
+                st.write(f"**Telegram Confidence:** {person['telegram_confidence'] or 0:.2f}")
                 st.write(f"**Updated:** {person['updated_at'].strftime('%Y-%m-%d %H:%M')}")
 
             with col2:
@@ -448,6 +506,113 @@ def show_agent_runs():
                 st.error(f"**Error:** {run['error_message']}")
 
 
+def show_deals():
+    """Show funding deals."""
+    st.header("💰 Funding Deals")
+
+    # Filters
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        search = st.text_input("Search by organization", placeholder="Enter organization name...")
+    with col2:
+        round_filter = st.selectbox("Round", ["All", "Seed", "Series A", "Series B", "Series C", "Series D+"])
+    with col3:
+        sort_by = st.selectbox("Sort by", ["Date (newest)", "Date (oldest)", "Amount (high to low)", "Amount (low to high)"])
+
+    # Get deals
+    with get_db() as db:
+        query = db.query(Deal, Organization).join(
+            Organization, Deal.org_id == Organization.id
+        )
+
+        if search:
+            query = query.filter(Organization.name.ilike(f'%{search}%'))
+
+        if round_filter != "All":
+            if round_filter == "Series D+":
+                query = query.filter(Deal.round.ilike('Series D%') | Deal.round.ilike('Series E%') | Deal.round.ilike('Series F%'))
+            else:
+                query = query.filter(Deal.round.ilike(f'%{round_filter}%'))
+
+        if sort_by == "Date (newest)":
+            query = query.order_by(desc(Deal.announced_on))
+        elif sort_by == "Date (oldest)":
+            query = query.order_by(Deal.announced_on)
+        elif sort_by == "Amount (high to low)":
+            query = query.order_by(desc(Deal.amount_usd))
+        else:
+            query = query.order_by(Deal.amount_usd)
+
+        deals_data = query.limit(100).all()
+
+        # Convert to dictionaries
+        deals = []
+        for deal, org in deals_data:
+            deals.append({
+                'id': str(deal.id),
+                'org_name': org.name,
+                'org_id': str(org.id),
+                'round': deal.round,
+                'amount_usd': float(deal.amount_usd) if deal.amount_usd else None,
+                'amount_original': float(deal.amount_original) if deal.amount_original else None,
+                'currency_original': deal.currency_original,
+                'announced_on': deal.announced_on,
+                'investors': deal.investors,
+                'source': deal.source,
+                'created_at': deal.created_at
+            })
+
+    if not deals:
+        st.info("No deals found. Load some deals first: `make load-deals`")
+        return
+
+    # Display count
+    st.caption(f"Showing {len(deals)} deals")
+
+    # Display deals
+    for deal in deals:
+        # Format amount
+        if deal['amount_usd']:
+            amount_str = f"${deal['amount_usd']:,.0f}M"
+        elif deal['amount_original'] and deal['currency_original']:
+            amount_str = f"{deal['currency_original']} {deal['amount_original']:,.0f}"
+        else:
+            amount_str = "Undisclosed"
+
+        # Format date
+        date_str = deal['announced_on'].strftime('%Y-%m-%d') if deal['announced_on'] else "Unknown date"
+
+        with st.expander(f"{deal['org_name']} • {deal['round'] or 'Unknown round'} • {amount_str} • {date_str}"):
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.write(f"**Organization:** {deal['org_name']}")
+                st.write(f"**Round:** {deal['round'] or 'Unknown'}")
+                st.write(f"**Amount (USD):** {amount_str}M")
+                if deal['amount_original'] and deal['currency_original']:
+                    st.write(f"**Original Amount:** {deal['currency_original']} {deal['amount_original']:,.2f}")
+                st.write(f"**Announced:** {date_str}")
+
+                # Investors
+                if deal['investors']:
+                    st.write(f"**Investors ({len(deal['investors'])}):**")
+                    for investor in deal['investors'][:10]:  # Show first 10
+                        st.write(f"  • {investor}")
+                    if len(deal['investors']) > 10:
+                        st.write(f"  ... and {len(deal['investors']) - 10} more")
+
+            with col2:
+                st.write("**Source:**")
+                source_name = deal['source'].get('name', 'Unknown')
+                source_url = deal['source'].get('url', '')
+                if source_url:
+                    st.write(f"[{source_name}]({source_url})")
+                else:
+                    st.write(source_name)
+
+                st.write(f"**Added:** {deal['created_at'].strftime('%Y-%m-%d')}")
+
+
 # Agent execution functions
 def run_website_finder(vc_name=None):
     """Run website finder agent."""
@@ -527,7 +692,7 @@ def run_vc_crawler(vc_name=None):
                         st.error(f"VC {vc_name} doesn't have a website yet. Run website finder first!")
                         return
 
-                    stats = crawler.crawl_single_vc(vc.id, vc.name, vc.website)
+                    stats = crawler.crawl_vc(vc)
                     st.success(f"✅ Crawler completed for {vc_name}!")
                     st.json(stats)
             else:
@@ -600,7 +765,7 @@ def main():
     st.sidebar.title("Navigation")
     page = st.sidebar.radio(
         "Go to",
-        ["Dashboard", "Organizations", "People", "Agent Runs"],
+        ["Dashboard", "Organizations", "People", "Deals", "Agent Runs"],
         label_visibility="collapsed"
     )
 
@@ -620,6 +785,8 @@ def main():
         show_orgs()
     elif page == "People":
         show_people()
+    elif page == "Deals":
+        show_deals()
     elif page == "Agent Runs":
         show_agent_runs()
 
