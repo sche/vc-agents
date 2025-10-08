@@ -11,6 +11,7 @@ Strategy:
 
 import json
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -21,19 +22,29 @@ from sqlalchemy import select
 
 from src.config import settings
 from src.db.connection import get_db
-from src.db.models import Evidence, Organization, Person, RoleEmployment
+from src.db.models import AgentRun, Evidence, Organization, Person, RoleEmployment
 
 
 class VCCrawler:
     """Crawls VC websites to extract team member information."""
 
-    def __init__(self):
-        """Initialize the crawler with OpenAI client."""
-        self.llm = ChatOpenAI(
-            model="gpt-4o-mini",  # Good balance of speed/cost/quality
+    def __init__(self, use_fallback: bool = True):
+        """Initialize the crawler with OpenAI client.
+
+        Args:
+            use_fallback: If True, use GPT-4o fallback when GPT-4o-mini finds 0 people
+        """
+        self.llm_mini = ChatOpenAI(
+            model="gpt-4o-mini",  # Fast, cheap for initial extraction
             temperature=0,
             api_key=settings.openai_api_key,
         )
+        self.llm_advanced = ChatOpenAI(
+            model="gpt-4o",  # More powerful for difficult cases
+            temperature=0,
+            api_key=settings.openai_api_key,
+        )
+        self.use_fallback = use_fallback
         self.screenshot_dir = Path("data/screenshots")
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +114,7 @@ Links:
 Return ONLY the href of the most likely team page link, or "NONE" if no suitable link exists.
 Look for links with text like: team, about, people, partners, leadership, our team, etc.
 """
-                response = self.llm.invoke(prompt)
+                response = self.llm_mini.invoke(prompt)
                 team_url = response.content.strip().strip('"')
 
                 if team_url and team_url != "NONE" and team_url.startswith("http"):
@@ -119,7 +130,7 @@ Look for links with text like: team, about, people, partners, leadership, our te
         finally:
             page.close()
 
-    def extract_people_from_page(self, browser, team_url: str, org_id: str) -> list[dict]:
+    def extract_people_from_page(self, browser, team_url: str, org_id: str, org_name: str = "Unknown") -> list[dict]:
         """
         Extract people from team page using OpenAI.
 
@@ -195,7 +206,7 @@ Example output format:
 
 JSON array:"""
 
-            response = self.llm.invoke(prompt)
+            response = self.llm_mini.invoke(prompt)
             content = response.content.strip()
 
             # Clean up markdown formatting if present
@@ -204,7 +215,14 @@ JSON array:"""
 
             people_data = json.loads(content)
 
-            logger.info(f"Extracted {len(people_data)} people from {team_url}")
+            logger.info(f"GPT-4o-mini extracted {len(people_data)} people from {team_url}")
+
+            # Fallback to GPT-4o if mini found 0 people
+            if len(people_data) == 0 and self.use_fallback:
+                logger.warning("GPT-4o-mini found 0 people, trying GPT-4o knowledge fallback...")
+                people_data = self._fallback_extraction_with_gpt4o(
+                    team_url, structured_text, html_content, screenshot_path, org_id, org_name
+                )
 
             # Add metadata
             for person in people_data:
@@ -223,6 +241,75 @@ JSON array:"""
             return []
         finally:
             page.close()
+
+    def _fallback_extraction_with_gpt4o(
+        self,
+        team_url: str,
+        structured_text: str | None,
+        html_content: str,
+        screenshot_path: Path,
+        org_id: str,
+        org_name: str,
+    ) -> list[dict]:
+        """
+        Fallback extraction using GPT-4o's general knowledge when scraping fails.
+
+        Instead of trying to extract from HTML, asks GPT-4o to use its knowledge
+        about who works at this VC firm (from any source: LinkedIn, news, etc.)
+        """
+        logger.info("🔄 Attempting GPT-4o knowledge-based fallback...")
+
+        prompt = f"""You are helping to find team members at a venture capital firm.
+
+Firm Name: "{org_name}"
+Website: {team_url}
+
+Task: Based on your knowledge (LinkedIn, news articles, public profiles, etc.), list the people who work at this VC firm.
+
+For each person, provide:
+- name: Full name
+- title: Job title/role (e.g., "Partner", "Managing Partner", "Principal", "Analyst")
+- profile_url: null (we'll find this later)
+- headshot_url: null (we'll find this later)
+
+IMPORTANT:
+1. Use your general knowledge about this firm - you don't need to extract from the HTML
+2. Include well-known partners, principals, and team members
+3. Focus on investment team members (not just support staff)
+4. If you don't know anyone at this firm, return []
+5. Return ONLY a valid JSON array
+
+Example output:
+[
+  {{"name": "John Smith", "title": "Managing Partner", "profile_url": null, "headshot_url": null}},
+  {{"name": "Jane Doe", "title": "Partner", "profile_url": null, "headshot_url": null}}
+]
+
+Return ONLY the JSON array (no explanation):"""
+
+        try:
+            response = self.llm_advanced.invoke(prompt)
+            content = response.content.strip()
+
+            # Clean markdown
+            if content.startswith("```"):
+                content = re.sub(r"```json\s*|\s*```", "", content).strip()
+
+            people_data = json.loads(content)
+
+            if len(people_data) > 0:
+                logger.success(f"✅ GPT-4o knowledge fallback found {len(people_data)} people!")
+            else:
+                logger.warning("GPT-4o knowledge fallback found 0 people - firm may be unknown")
+
+            return people_data
+
+        except json.JSONDecodeError as e:
+            logger.error(f"GPT-4o fallback JSON parse error: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"GPT-4o fallback error: {e}")
+            return []
 
     def save_person(self, person_data: dict, org_id: str, base_url: str) -> tuple[str | None, str]:
         """
@@ -361,14 +448,54 @@ JSON array:"""
             db.add(evidence)
             logger.debug(f"Saved evidence for: {person_data['name']}")
 
+    def create_agent_run(self, org_id: str, org_name: str, input_params: dict) -> str:
+        """Create a new agent run record and return its ID."""
+        with get_db() as db:
+            run = AgentRun(
+                agent_name="vc_crawler",
+                status="running",
+                input_params={
+                    "org_id": org_id,
+                    "org_name": org_name,
+                    **input_params,
+                },
+                started_at=datetime.utcnow(),
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            return str(run.id)
+
+    def complete_agent_run(
+        self, run_id: str, status: str, output_summary: dict, error_message: str | None = None
+    ):
+        """Update agent run with completion status."""
+        with get_db() as db:
+            run = db.get(AgentRun, run_id)
+            if run:
+                run.status = status
+                run.completed_at = datetime.utcnow()
+                run.output_summary = output_summary
+                run.error_message = error_message
+                db.commit()
+
     def crawl_vc(self, org: Organization) -> dict:
         """
         Crawl a single VC organization.
 
         Returns stats dict with counts.
         """
+        # Create agent run record
+        run_id = self.create_agent_run(
+            org_id=str(org.id),
+            org_name=org.name,
+            input_params={"website": org.website, "use_fallback": self.use_fallback},
+        )
+
         stats = {
             "org_name": org.name,
+            "org_id": str(org.id),
+            "run_id": run_id,
             "people_found": 0,
             "people_created": 0,
             "people_updated": 0,
@@ -383,6 +510,7 @@ JSON array:"""
             if not website:
                 stats["error"] = "No website found"
                 logger.warning(f"No website for {org.name}")
+                self.complete_agent_run(run_id, "failed", stats, "No website found")
                 return stats
 
             with sync_playwright() as p:
@@ -393,10 +521,11 @@ JSON array:"""
                     team_url = self.find_team_page(browser, website)
                     if not team_url:
                         stats["error"] = "Team page not found"
+                        self.complete_agent_run(run_id, "failed", stats, "Team page not found")
                         return stats
 
                     # Extract people
-                    people_data = self.extract_people_from_page(browser, team_url, str(org.id))
+                    people_data = self.extract_people_from_page(browser, team_url, str(org.id), org.name)
                     stats["people_found"] = len(people_data)
 
                     # Save to database
@@ -430,12 +559,16 @@ JSON array:"""
                         f"{stats['roles_created']} roles"
                     )
 
+                    # Mark as completed successfully
+                    self.complete_agent_run(run_id, "completed", stats)
+
                 finally:
                     browser.close()
 
         except Exception as e:
             stats["error"] = str(e)
             logger.error(f"Error crawling {org.name}: {e}")
+            self.complete_agent_run(run_id, "failed", stats, str(e))
 
         return stats
 
@@ -449,17 +582,20 @@ JSON array:"""
         Returns:
             Overall statistics
         """
-        # Get all VCs
+        # Get all VCs and extract data we need before session closes
         with get_db() as db:
             stmt = select(Organization).where(Organization.kind == "vc")
             if limit:
                 stmt = stmt.limit(limit)
-            vcs = db.execute(stmt).scalars().all()
+            vcs_data = [
+                {"id": vc.id, "name": vc.name, "website": vc.website}
+                for vc in db.execute(stmt).scalars().all()
+            ]
 
-        logger.info(f"Found {len(vcs)} VCs to crawl")
+        logger.info(f"Found {len(vcs_data)} VCs to crawl")
 
         overall_stats = {
-            "total_vcs": len(vcs),
+            "total_vcs": len(vcs_data),
             "vcs_processed": 0,
             "people_created": 0,
             "people_updated": 0,
@@ -468,10 +604,14 @@ JSON array:"""
             "errors": [],
         }
 
-        for i, vc in enumerate(vcs, 1):
-            logger.info(f"\n[{i}/{len(vcs)}] Crawling: {vc.name}")
+        for i, vc_data in enumerate(vcs_data, 1):
+            logger.info(f"\n[{i}/{len(vcs_data)}] Crawling: {vc_data['name']}")
 
-            stats = self.crawl_vc(vc)
+            # Fetch fresh vc object for each crawl
+            with get_db() as db:
+                vc = db.get(Organization, vc_data["id"])
+                stats = self.crawl_vc(vc)
+
             overall_stats["vcs_processed"] += 1
             overall_stats["people_created"] += stats["people_created"]
             overall_stats["people_updated"] += stats["people_updated"]
@@ -479,7 +619,7 @@ JSON array:"""
             overall_stats["total_roles"] += stats["roles_created"]
 
             if stats["error"]:
-                overall_stats["errors"].append(f"{vc.name}: {stats['error']}")
+                overall_stats["errors"].append(f"{vc_data['name']}: {stats['error']}")
 
         return overall_stats
 
@@ -496,6 +636,11 @@ def main():
         action="store_true",
         help=f"Force refresh all people, ignoring the {settings.recrawl_after_days}-day threshold",
     )
+    parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="Disable GPT-4o fallback (use only GPT-4o-mini)",
+    )
 
     args = parser.parse_args()
 
@@ -506,7 +651,7 @@ def main():
 
     logger.info("🕷️  Starting VC Crawler Agent...")
 
-    crawler = VCCrawler()
+    crawler = VCCrawler(use_fallback=not args.no_fallback)
 
     if args.vc_name:
         # Crawl specific VC
