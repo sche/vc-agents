@@ -1,0 +1,24 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "streamlit run src/admin/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+healthcheckPath = "/"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[[environmentVariables]]
+name = "DATABASE_URL"
+description = "PostgreSQL connection string from Supabase"
+
+[[environmentVariables]]
+name = "OPENAI_API_KEY"
+description = "OpenAI API key for agents"
+
+[[environmentVariables]]
+name = "NEYNAR_API_KEY"
+description = "Neynar API key for Farcaster integration"
+
+[[environmentVariables]]
+name = "PERPLEXITY_API_KEY"
+description = "Perplexity API key for LLM integration"

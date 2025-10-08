@@ -571,11 +571,11 @@ def show_deals():
 
     # Display deals
     for deal in deals:
-        # Format amount
+        # Format amount (values are in millions already)
         if deal['amount_usd']:
-            amount_str = f"${deal['amount_usd']:,.0f}M"
+            amount_str = f"${deal['amount_usd']:,.1f}M"
         elif deal['amount_original'] and deal['currency_original']:
-            amount_str = f"{deal['currency_original']} {deal['amount_original']:,.0f}"
+            amount_str = f"{deal['currency_original']} {deal['amount_original']:,.1f}M"
         else:
             amount_str = "Undisclosed"
 
@@ -588,9 +588,9 @@ def show_deals():
             with col1:
                 st.write(f"**Organization:** {deal['org_name']}")
                 st.write(f"**Round:** {deal['round'] or 'Unknown'}")
-                st.write(f"**Amount (USD):** {amount_str}M")
+                st.write(f"**Amount (USD):** {amount_str}")
                 if deal['amount_original'] and deal['currency_original']:
-                    st.write(f"**Original Amount:** {deal['currency_original']} {deal['amount_original']:,.2f}")
+                    st.write(f"**Original Amount:** {deal['currency_original']} {deal['amount_original']:,.1f}M")
                 st.write(f"**Announced:** {date_str}")
 
                 # Investors

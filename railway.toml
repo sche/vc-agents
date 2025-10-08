@@ -16,7 +16,4 @@ restartPolicyMaxRetries = 10
 # - OPENAI_API_KEY
 # - PERPLEXITY_API_KEY
 # - NEYNAR_API_KEY
-#
-# Optional:
-# - TWITTER_BEARER_TOKEN
-# - ANTHROPIC_API_KEY
+
