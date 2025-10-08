@@ -19,6 +19,9 @@ help:
 	@echo "  make run-enricher   - Run social enricher agent"
 	@echo "  make run-pipeline   - Run full pipeline"
 	@echo ""
+	@echo "API Server:"
+	@echo "  make run-api        - Start FastAPI server for Retool integration (port 8000)"
+	@echo ""
 	@echo "UI Commands:"
 	@echo "  make retool-start   - Start Retool UI (http://localhost:3000)"
 	@echo "  make retool-stop    - Stop Retool UI"
@@ -105,6 +108,10 @@ run-intro:
 
 run-pipeline:
 	python -m src.run_pipeline
+
+# API Server (for Retool integration)
+run-api:
+	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 # Development helpers
 shell:

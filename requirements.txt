@@ -78,6 +78,6 @@ ipython>=8.20.0  # Better REPL
 # ============================================================================
 # Optional: UI/Admin Tools
 # ============================================================================
-# fastapi>=0.109.0  # If building API
-# uvicorn>=0.27.0  # ASGI server
+fastapi>=0.109.0  # API for Retool integration
+uvicorn>=0.27.0  # ASGI server
 # streamlit>=1.30.0  # Quick admin UI alternative to Retool
