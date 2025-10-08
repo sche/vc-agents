@@ -40,7 +40,53 @@ make verify
 make run-deals
 ```
 
-## 📚 Documentation
+## � Deployment & Production
+
+### Cloud Deployment (Recommended for Retool Integration)
+
+Deploy the API and database to the cloud for integration with Retool:
+
+**Stack:**
+- **Database**: [Supabase](https://supabase.com) - Managed PostgreSQL (free tier available)
+- **API Server**: [Railway](https://railway.app) - Auto-deploy from GitHub (~$5-10/month)
+- **Frontend**: [Retool](https://retool.com) - Low-code dashboard for agent orchestration
+
+**Quick Deploy:**
+
+```bash
+# 1. Deploy database to Supabase
+# - Create project at supabase.com
+# - Copy connection string
+
+# 2. Deploy API to Railway
+# - Connect GitHub repo (supports private repos)
+# - Railway will auto-detect configuration
+# - Add environment variables (see Railway guide)
+
+# 3. Initialize database schema
+railway run python -m src.db.init_db
+
+# 4. Connect Retool
+# - Add REST API resource (Railway URL)
+# - Add PostgreSQL resource (Supabase)
+# - Import dashboard template
+```
+
+**Documentation:**
+- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md) - Step-by-step deployment to Railway
+- [Retool API Integration](docs/RETOOL_API.md) - Complete Retool setup guide
+- [Retool Triggers Quick Start](docs/RETOOL_TRIGGERS.md) - Trigger agents from Retool UI
+
+### Local API Server
+
+Run the FastAPI server locally for development:
+
+```bash
+make run-api
+# Access at http://localhost:8000/docs
+```
+
+## �📚 Documentation
 
 - [**Setup Guide**](docs/SETUP.md) - Detailed installation and configuration
 - [**Schema Summary**](docs/SCHEMA_SUMMARY.md) - Database design and decisions

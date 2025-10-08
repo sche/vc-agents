@@ -1,0 +1,22 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[env]
+# Railway will automatically inject these variables
+# Configure them in Railway dashboard under "Variables"
+#
+# Required:
+# - DATABASE_URL (from Railway Postgres plugin)
+# - OPENAI_API_KEY
+# - PERPLEXITY_API_KEY
+# - NEYNAR_API_KEY
+#
+# Optional:
+# - TWITTER_BEARER_TOKEN
+# - ANTHROPIC_API_KEY

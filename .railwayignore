@@ -1,0 +1,56 @@
+# Railway Ignore - files to exclude from deployment
+
+# Development
+.venv/
+venv/
+env/
+.env.local
+.env.development
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.pyc
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed at runtime)
+docs/
+*.md
+!README.md
+
+# Data files (if large)
+data/screenshots/
+*.csv
+*.json
+!data/defillama-raises.json
+
+# Git
+.git/
+.gitignore
+
+# Docker (if not using)
+docker-compose*.yml
+Dockerfile
+
+# Local database dumps
+*.sql
+
+# Logs
+*.log
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
