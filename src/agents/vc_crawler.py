@@ -32,17 +32,19 @@ class VCCrawler:
         """Initialize the crawler with OpenAI client.
 
         Args:
-            use_fallback: If True, use GPT-4o fallback when GPT-4o-mini finds 0 people
+            use_fallback: If True, use Perplexity fallback when GPT-4o-mini finds 0 people
         """
         self.llm_mini = ChatOpenAI(
             model="gpt-4o-mini",  # Fast, cheap for initial extraction
             temperature=0,
             api_key=settings.openai_api_key,
         )
-        self.llm_advanced = ChatOpenAI(
-            model="gpt-4o",  # More powerful for difficult cases
-            temperature=0,
-            api_key=settings.openai_api_key,
+        # Use Perplexity for fallback (real-time web search)
+        self.llm_fallback = ChatOpenAI(
+            model="sonar",  # Perplexity's real-time search model
+            temperature=0.5,
+            api_key=settings.perplexity_api_key,
+            base_url="https://api.perplexity.ai",
         )
         self.use_fallback = use_fallback
         self.screenshot_dir = Path("data/screenshots")
@@ -217,10 +219,10 @@ JSON array:"""
 
             logger.info(f"GPT-4o-mini extracted {len(people_data)} people from {team_url}")
 
-            # Fallback to GPT-4o if mini found 0 people
+            # Fallback to Perplexity if mini found 0 people
             if len(people_data) == 0 and self.use_fallback:
-                logger.warning("GPT-4o-mini found 0 people, trying GPT-4o knowledge fallback...")
-                people_data = self._fallback_extraction_with_gpt4o(
+                logger.warning("GPT-4o-mini found 0 people, trying Perplexity real-time search fallback...")
+                people_data = self._fallback_extraction_with_perplexity(
                     team_url, structured_text, html_content, screenshot_path, org_id, org_name
                 )
 
@@ -242,7 +244,7 @@ JSON array:"""
         finally:
             page.close()
 
-    def _fallback_extraction_with_gpt4o(
+    def _fallback_extraction_with_perplexity(
         self,
         team_url: str,
         structured_text: str | None,
@@ -252,12 +254,11 @@ JSON array:"""
         org_name: str,
     ) -> list[dict]:
         """
-        Fallback extraction using GPT-4o's general knowledge when scraping fails.
+        Fallback extraction using Perplexity's real-time web search when HTML scraping fails.
 
-        Instead of trying to extract from HTML, asks GPT-4o to use its knowledge
-        about who works at this VC firm (from any source: LinkedIn, news, etc.)
+        Perplexity can search the web in real-time to find current team member information.
         """
-        logger.info("🔄 Attempting GPT-4o knowledge-based fallback...")
+        logger.info("🔄 Attempting Perplexity real-time search fallback...")
 
         prompt = f"""You are helping to find team members at a venture capital firm.
 
@@ -271,25 +272,32 @@ For each person, provide:
 - title: Job title/role (e.g., "Partner", "Managing Partner", "Principal", "Analyst")
 - profile_url: null (we'll find this later)
 - headshot_url: null (we'll find this later)
+- evidence_url: URL where you found this person (LinkedIn profile, news article, etc.), or null if unavailable
 
 IMPORTANT:
 1. Use your general knowledge about this firm - you don't need to extract from the HTML
 2. Include well-known partners, principals, and team members
 3. Focus on investment team members (not just support staff)
 4. If you don't know anyone at this firm, return []
-5. Return ONLY a valid JSON array
+5. Return ONLY a valid JSON array (no explanations, no suggestions)
 
 Example output:
 [
-  {{"name": "John Smith", "title": "Managing Partner", "profile_url": null, "headshot_url": null}},
-  {{"name": "Jane Doe", "title": "Partner", "profile_url": null, "headshot_url": null}}
+  {{"name": "John Smith", "title": "Managing Partner", "profile_url": null, "headshot_url": null, "evidence_url": "https://linkedin.com/in/johnsmith"}},
+  {{"name": "Jane Doe", "title": "Partner", "profile_url": null, "headshot_url": null, "evidence_url": null}}
 ]
 
 Return ONLY the JSON array (no explanation):"""
 
+        logger.info(f"📤 Perplexity Fallback Prompt for {org_name}:")
+        logger.info(f"   Firm: {org_name}")
+        logger.info(f"   URL: {team_url}")
+
         try:
-            response = self.llm_advanced.invoke(prompt)
+            response = self.llm_fallback.invoke(prompt)
             content = response.content.strip()
+
+            logger.info(f"📥 Perplexity Raw Response ({len(content)} chars): {content[:500]}{'...' if len(content) > 500 else ''}")
 
             # Clean markdown
             if content.startswith("```"):
@@ -297,18 +305,21 @@ Return ONLY the JSON array (no explanation):"""
 
             people_data = json.loads(content)
 
+            logger.info(f"✅ Perplexity Parsed Response: {len(people_data)} people in array")
+
             if len(people_data) > 0:
-                logger.success(f"✅ GPT-4o knowledge fallback found {len(people_data)} people!")
+                logger.success(f"✅ Perplexity real-time search found {len(people_data)} people!")
             else:
-                logger.warning("GPT-4o knowledge fallback found 0 people - firm may be unknown")
+                logger.warning("Perplexity found 0 people - firm may have no public team information")
 
             return people_data
 
         except json.JSONDecodeError as e:
-            logger.error(f"GPT-4o fallback JSON parse error: {e}")
+            logger.error(f"Perplexity fallback JSON parse error: {e}")
+            logger.error(f"Response was: {content[:500]}")
             return []
         except Exception as e:
-            logger.error(f"GPT-4o fallback error: {e}")
+            logger.error(f"Perplexity fallback error: {e}")
             return []
 
     def save_person(self, person_data: dict, org_id: str, base_url: str) -> tuple[str | None, str]:
@@ -431,10 +442,19 @@ Return ONLY the JSON array (no explanation):"""
             headshot_url = base_url.rstrip("/") + "/" + headshot_url.lstrip("/")
 
         with get_db() as db:
+            # Determine extraction method and evidence URL
+            extraction_method = "openai_gpt4o_mini"
+            evidence_url = person_data["source_url"]
+
+            # If Perplexity provided an evidence_url, use it and update method
+            if person_data.get("evidence_url"):
+                evidence_url = person_data["evidence_url"]
+                extraction_method = "perplexity_real_time_search"
+
             evidence = Evidence(
                 person_id=person_id,
                 evidence_type="vc_crawler_extraction",
-                url=person_data["source_url"],
+                url=evidence_url,
                 screenshot_url=person_data.get("screenshot_path"),
                 extracted_data={
                     "name": person_data["name"],
@@ -443,10 +463,11 @@ Return ONLY the JSON array (no explanation):"""
                     "headshot_url": headshot_url,
                     "confidence": 0.9,  # High confidence for direct extraction
                 },
-                extraction_method="openai_gpt4o_mini",
+                extraction_method=extraction_method,
             )
             db.add(evidence)
             logger.debug(f"Saved evidence for: {person_data['name']}")
+
 
     def create_agent_run(self, org_id: str, org_name: str, input_params: dict) -> str:
         """Create a new agent run record and return its ID."""
@@ -639,7 +660,7 @@ def main():
     parser.add_argument(
         "--no-fallback",
         action="store_true",
-        help="Disable GPT-4o fallback (use only GPT-4o-mini)",
+        help="Disable Perplexity fallback (use only GPT-4o-mini)",
     )
 
     args = parser.parse_args()
