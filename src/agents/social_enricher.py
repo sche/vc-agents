@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from src.config import settings
 from src.db.connection import get_db
-from src.db.models import Person
+from src.db.models import AgentRun, Person
 
 
 class SocialEnricher:
@@ -321,6 +321,8 @@ Return ONLY valid JSON, no explanations."""
 
     def _update_person_socials(self, person: Person, enrichment: dict):
         """Update person's socials in database."""
+        from sqlalchemy.orm.attributes import flag_modified
+
         with get_db() as db:
             # Refresh person object
             db_person = db.get(Person, person.id)
@@ -331,11 +333,13 @@ Return ONLY valid JSON, no explanations."""
                 db_person.socials["farcaster"] = fc["username"]
                 db_person.socials["farcaster_fid"] = fc["fid"]
                 db_person.socials["farcaster_confidence"] = fc["confidence"]
+                flag_modified(db_person, "socials")  # Mark JSONB as modified
 
             if enrichment["twitter"]:
                 tw = enrichment["twitter"]
                 db_person.socials["twitter"] = tw["handle"]
                 db_person.socials["twitter_confidence"] = tw["confidence"]
+                flag_modified(db_person, "socials")  # Mark JSONB as modified
 
             if enrichment["telegram"]:
                 tg = enrichment["telegram"]
@@ -355,12 +359,40 @@ Return ONLY valid JSON, no explanations."""
                     "telegram": enrichment["telegram"] is not None,
                 }
             )
+            flag_modified(db_person, "enrichment_history")  # Mark JSONB as modified
 
             db.commit()
             logger.info(f"✓ Updated socials for {person.full_name}")
 
+    def create_agent_run(self, input_params: dict) -> str:
+        """Create a new agent run record and return its ID."""
+        with get_db() as db:
+            run = AgentRun(
+                agent_name="social_enricher",
+                status="running",
+                input_params=input_params,
+                started_at=datetime.utcnow(),
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            return str(run.id)
+
+    def complete_agent_run(
+        self, run_id: str, status: str, output_summary: dict, error_message: str | None = None
+    ):
+        """Update agent run with completion status."""
+        with get_db() as db:
+            run = db.get(AgentRun, run_id)
+            if run:
+                run.status = status
+                run.completed_at = datetime.utcnow()
+                run.output_summary = output_summary
+                run.error_message = error_message
+                db.commit()
+
     def enrich_all_people(
-        self, limit: int = None, min_confidence: float = 0.6
+        self, limit: int = None, min_confidence: float = 0.5
     ) -> dict:
         """
         Enrich all people lacking social handles.
@@ -372,48 +404,82 @@ Return ONLY valid JSON, no explanations."""
         Returns:
             Statistics dict
         """
-        with get_db() as db:
-            # Find people without Farcaster handle
-            stmt = select(Person).where(
-                ~Person.socials.has_key("farcaster")  # type: ignore
-            )
-            if limit:
-                stmt = stmt.limit(limit)
+        # Create agent run record
+        run_id = self.create_agent_run(
+            input_params={"limit": limit, "min_confidence": min_confidence}
+        )
 
-            people = db.execute(stmt).scalars().all()
-
-        logger.info(f"Found {len(people)} people to enrich")
-
-        stats = {
-            "total_people": len(people),
-            "enriched": 0,
-            "farcaster_found": 0,
-            "twitter_found": 0,
-            "telegram_inferred": 0,
-        }
-
-        for i, person in enumerate(people, 1):
-            logger.info(f"\n[{i}/{len(people)}] Enriching: {person.full_name}")
-
-            # Get org name from roles
-            org_name = ""
+        try:
+            # Get list of person IDs and basic info to enrich
+            people_to_enrich = []
             with get_db() as db:
-                db_person = db.get(Person, person.id)
-                if db_person.roles:
-                    org_name = db_person.roles[0].organization.name
+                # Find people without Farcaster handle
+                stmt = select(Person).where(
+                    ~Person.socials.has_key("farcaster")  # type: ignore
+                )
+                if limit:
+                    stmt = stmt.limit(limit)
 
-            result = self.enrich_person(person, org_name)
+                people = db.execute(stmt).scalars().all()
 
-            if result["updated"]:
-                stats["enriched"] += 1
-            if result["farcaster"]:
-                stats["farcaster_found"] += 1
-            if result["twitter"]:
-                stats["twitter_found"] += 1
-            if result["telegram"]:
-                stats["telegram_inferred"] += 1
+                # Extract data we need while still in session
+                for person in people:
+                    org_name = ""
+                    if person.roles:
+                        org_name = person.roles[0].organization.name
 
-        return stats
+                    people_to_enrich.append({
+                        "id": person.id,
+                        "full_name": person.full_name,
+                        "org_name": org_name,
+                        "email": person.email,
+                        "socials": dict(person.socials) if person.socials else {},
+                    })
+
+            logger.info(f"Found {len(people_to_enrich)} people to enrich")
+
+            stats = {
+                "total_people": len(people_to_enrich),
+                "enriched": 0,
+                "farcaster_found": 0,
+                "twitter_found": 0,
+                "telegram_inferred": 0,
+            }
+
+            for i, person_data in enumerate(people_to_enrich, 1):
+                logger.info(f"\n[{i}/{len(people_to_enrich)}] Enriching: {person_data['full_name']}")
+
+                # Get fresh person object from database
+                with get_db() as db:
+                    person = db.get(Person, person_data["id"])
+                    org_name = person_data["org_name"]
+
+                    result = self.enrich_person(person, org_name)
+
+                    if result["updated"]:
+                        stats["enriched"] += 1
+                    if result["farcaster"]:
+                        stats["farcaster_found"] += 1
+                    if result["twitter"]:
+                        stats["twitter_found"] += 1
+                    if result["telegram"]:
+                        stats["telegram_inferred"] += 1
+
+            # Mark run as completed
+            self.complete_agent_run(run_id, "completed", stats)
+            return stats
+
+        except Exception as e:
+            # Mark run as failed
+            error_msg = str(e)
+            logger.error(f"Social enrichment failed: {error_msg}")
+            self.complete_agent_run(
+                run_id,
+                "failed",
+                {"error": error_msg},
+                error_message=error_msg
+            )
+            raise
 
 
 def main():
