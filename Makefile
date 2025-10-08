@@ -89,7 +89,7 @@ load-deals:
 	python scripts/load_defillama_deals.py
 
 load-deals-limit:
-	python scripts/load_defillama_deals.py --limit 1
+	python scripts/load_defillama_deals.py --limit 3
 
 find-websites:
 	python -m src.agents.vc_website_finder

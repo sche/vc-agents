@@ -34,6 +34,8 @@ class Settings(BaseSettings):
         default=None, description="OpenAI API key")
     anthropic_api_key: Optional[str] = Field(
         default=None, description="Anthropic API key")
+    perplexity_api_key: Optional[str] = Field(
+        default=None, description="Perplexity API key")
 
     # ========================================================================
     # External APIs

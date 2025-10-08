@@ -1,8 +1,8 @@
 # VC Website Finder Agent
 
-**Status**: ✅ Production Ready
+**Status**: ✅ Production Ready (Enhanced with validation & tracking)
 **Location**: `src/agents/vc_website_finder.py`
-**Purpose**: Discover and validate official websites for VC organizations using LLM
+**Purpose**: Discover and validate official websites for VC organizations using LLM with automatic fallback patterns
 
 ## Overview
 
@@ -10,13 +10,17 @@ The VC Website Finder is an intelligent agent that finds official websites for v
 
 ## Strategy
 
-The agent uses a multi-step approach:
+The agent uses a conservative, high-precision approach:
 
-1. **Check existing** → Skip if website already set
+1. **Check existing** → If `--force` flag used, validate existing URL first
 2. **Extract from sources** → Look for domains in article sources (DefiLlama articles often link to VCs)
-3. **LLM discovery** → Ask GPT-4o-mini for the official website URL
-4. **Validation** (optional) → Verify URL is reachable via HTTP request
-5. **Update database** → Save website to `orgs.website` and add to `sources` array
+3. **LLM discovery** → Ask GPT-4o for the official website URL
+4. **Validate** → Verify URL is reachable via HTTP request (automatic)
+5. **No guessing** → If LLM fails or validation fails, return None (manual research needed)
+6. **Update database** → Save validated website to `orgs.website` and add to `sources` array
+7. **Track workflow** → Record run in `agent_runs` table for visibility
+
+**Note**: The agent does NOT use domain pattern guessing (e.g., firmname.com, firmname.vc) as this creates too many false positives. For example, searching for "Alchemy" VC firm could incorrectly find alchemy.com (a blockchain infrastructure company). Manual research is better than wrong data.
 
 ## Usage
 
@@ -28,7 +32,10 @@ make find-websites
 python -m src.agents.vc_website_finder
 ```
 
-**Note**: Validation is **OFF by default** (trusts GPT-4o). Use `--validate` to enable HTTP validation.
+**Note**: URL validation is **ALWAYS ENABLED**. The agent will:
+- Validate LLM suggestions before accepting them
+- Try domain pattern fallbacks if LLM URL fails
+- Only update database with verified, reachable URLs
 
 ### Find website for specific VC
 
@@ -36,19 +43,21 @@ python -m src.agents.vc_website_finder
 python -m src.agents.vc_website_finder --vc-name "Sequoia"
 ```
 
-### Re-find websites even if already set
+### Re-validate and fix websites even if already set
 
 ```bash
 python -m src.agents.vc_website_finder --force
 ```
 
+**What `--force` does:**
+- Validates existing URLs via HTTP request
+- If URL fails validation, clears it and tries to find a new one
+- Uses LLM + domain pattern fallback to find valid alternatives
+- Perfect for fixing broken/incorrect URLs
+
 ### Enable URL validation (optional)
 
-```bash
-python -m src.agents.vc_website_finder --validate
-```
-
-**Note**: Validation can fail due to firewalls, temporary DNS issues, or sites blocking automated requests. GPT-4o is highly accurate, so validation is usually unnecessary.
+**Note**: Validation is now **always enabled** by default. The `--validate` flag has been removed.
 
 ### Process limited number
 ```bash

@@ -4,13 +4,11 @@ VC Website Finder Agent - Discover official websites for VC organizations.
 
 Strategy:
 1. Check if website already exists → skip
-2. Extract domains from sources (articles may link to VC sites)
-3. Use LLM to find official website from VC name
+2. Extract article URLs from sources (for LLM context)
+3. Use LLM to find official website from VC name + article context
 4. Validate URL is reachable
 5. Update org.website field
 """
-
-from urllib.parse import urlparse
 
 import httpx
 from langchain_openai import ChatOpenAI
@@ -19,165 +17,170 @@ from sqlalchemy import select
 
 from src.config import settings
 from src.db.connection import get_db
-from src.db.models import Organization
+from src.db.models import AgentRun, Organization
 
 
 class VCWebsiteFinder:
     """Finds and validates official websites for VC organizations."""
 
-    def __init__(self, validate_urls: bool = False):
-        """Initialize with OpenAI client and HTTP client.
+    def __init__(self, use_perplexity: bool = True):
+        """Initialize with LLM client and HTTP client.
 
         Args:
-            validate_urls: If True, validate URLs via HTTP (slower, may fail on firewalls)
+            use_perplexity: If True (default), use Perplexity AI (has real-time web search).
+                          If False, use OpenAI GPT.
         """
-        self.llm = ChatOpenAI(
-            model="gpt-4o",  # Using GPT-4o for better knowledge and reasoning
-            temperature=0,
-            api_key=settings.openai_api_key,
-        )
+        if use_perplexity and settings.perplexity_api_key:
+            # Perplexity has real-time web search capabilities
+            self.llm = ChatOpenAI(
+                model="sonar",  # Perplexity's online search model
+                temperature=0.5,
+                api_key=settings.perplexity_api_key,
+                base_url="https://api.perplexity.ai",
+            )
+            self.llm_provider = "perplexity"
+            logger.info("Using Perplexity AI with real-time web search")
+        else:
+            # Fallback to OpenAI GPT
+            self.llm = ChatOpenAI(
+                model="gpt-4o",
+                temperature=0.5,
+                api_key=settings.openai_api_key,
+            )
+            self.llm_provider = "openai"
+            logger.info("Using OpenAI GPT-4o")
+
         self.http_client = httpx.Client(timeout=10.0, follow_redirects=True)
-        self.validate_urls = validate_urls
 
-    def extract_domains_from_sources(self, org: Organization) -> list[str]:
+    def create_agent_run(self, db_session, org_id: str, org_name: str, input_params: dict) -> str:
         """
-        Extract potential VC domains from article sources.
+        Create an agent run record to track the website finding process.
 
-        Articles often link to the VC's website when mentioning them.
+        Args:
+            db_session: SQLAlchemy session
+            org_id: Organization UUID
+            org_name: Organization name
+            input_params: Additional input parameters
+
+        Returns:
+            Run ID (UUID as string)
         """
-        domains = []
+        agent_run = AgentRun(
+            agent_name="vc_website_finder",
+            status="running",
+            input_params={
+                "org_id": str(org_id),
+                "org_name": org_name,
+                **input_params,
+            },
+        )
+        db_session.add(agent_run)
+        db_session.commit()
+        return str(agent_run.id)
+
+    def complete_agent_run(
+        self,
+        db_session,
+        run_id: str,
+        status: str,
+        output_summary: dict,
+        error_message: str | None = None,
+    ):
+        """
+        Update agent run record on completion.
+
+        Args:
+            db_session: SQLAlchemy session
+            run_id: Run ID from create_agent_run
+            status: 'completed' or 'failed'
+            output_summary: Dictionary with results
+            error_message: Error message if failed
+        """
+        from datetime import datetime, timezone
+
+        agent_run = db_session.get(AgentRun, run_id)
+        if agent_run:
+            agent_run.status = status
+            agent_run.output_summary = output_summary
+            agent_run.error_message = error_message
+            agent_run.completed_at = datetime.now(timezone.utc)
+            db_session.commit()
+
+
+    def extract_urls_from_sources(self, org: Organization) -> list[str]:
+        """
+        Extract article URLs from sources to provide context to the LLM.
+
+        These are news articles about deals mentioning the VC.
+        The LLM can use these URLs as context to identify which VC we're looking for.
+        """
+        urls = []
 
         if not org.sources:
-            return domains
+            return urls
 
         for source in org.sources:
             url = source.get("url", "")
-            if not url:
-                continue
+            if url:
+                urls.append(url)
 
-            # Parse the URL to get domain
-            parsed = urlparse(url)
-            domain = parsed.netloc
+        return list(set(urls))  # Deduplicate
 
-            # Skip news/article sites
-            skip_domains = [
-                "cryptodaily.co.uk",
-                "techcrunch.com",
-                "bloomberg.com",
-                "reuters.com",
-                "coindesk.com",
-                "twitter.com",
-                "x.com",
-                "linkedin.com",
-                "crunchbase.com",
-            ]
+    def find_website_with_llm(self, vc_name: str, context_urls: list[str]) -> str | None:
+        """Use LLM to find the official website for a VC firm with validation.
 
-            if any(skip in domain for skip in skip_domains):
-                continue
+        Returns the URL only if:
+        1. LLM can confidently suggest a URL (not "UNKNOWN")
+        2. The URL passes HTTP validation (is reachable)
 
-            # This might be the VC's website
-            if domain:
-                domains.append(domain)
-
-        return list(set(domains))  # Deduplicate
-
-    def guess_domain_patterns(self, vc_name: str) -> list[str]:
+        If either condition fails, returns None to indicate manual research is needed.
+        This prevents false positives from domain guessing.
         """
-        Generate likely domain patterns based on VC name.
 
-        Args:
-            vc_name: Name of the VC firm
-
-        Returns:
-            List of potential domain URLs to try
-        """
-        import re
-
-        # Clean the name: remove common suffixes and special chars
-        clean_name = vc_name.lower()
-        clean_name = re.sub(r'\b(capital|ventures|partners|venture|vc|fund|investments?)\b', '', clean_name)
-        clean_name = re.sub(r'[^a-z0-9\s]', '', clean_name)
-        clean_name = clean_name.strip().replace(' ', '')
-
-        if not clean_name:
-            # Fallback: use original name without spaces
-            clean_name = re.sub(r'[^a-z0-9]', '', vc_name.lower())
-
-        patterns = []
-
-        # Common VC domain patterns
-        tlds = ['.com', '.vc', '.capital', '.io']
-        for tld in tlds:
-            patterns.append(f"https://www.{clean_name}{tld}")
-            patterns.append(f"https://{clean_name}{tld}")
-
-        return patterns
-
-    def find_website_with_llm(self, vc_name: str, context_domains: list[str] | None = None) -> str | None:
-        """
-        Use LLM to find the official website for a VC.
-
-        Args:
-            vc_name: Name of the VC firm
-            context_domains: Domains found in sources (may help LLM)
-
-        Returns:
-            Official website URL or None
-        """
+        # Build context from URLs
         context = ""
-        if context_domains:
-            context = f"\nDomains found in related articles: {', '.join(context_domains)}"
+        if context_urls:
+            context = f"\n\nContext: This VC was mentioned in articles with these URLs: {', '.join(context_urls)}"
 
         prompt = f"""You are helping to find the official website for a venture capital firm.
 
-VC Firm Name: "{vc_name}"{context}
+VC Firm Name: "{vc_name}"
 
-Task: Return the MOST LIKELY official website URL for this VC firm, even if you're not 100% certain.
+Task: Return the official, primary website URL for this VC firm.
 
 Rules:
 - Return ONLY the URL in the format: https://example.com
 - Use https:// protocol
 - Return the main domain (not subpages like /team or /about)
-- Make your BEST GUESS based on the firm name and common VC website patterns
-- Try patterns like: firmname.com, firmname.vc, firmname.capital
-- ONLY return "UNKNOWN" if the name is clearly nonsensical or you have no reasonable guess
-- Do not include any explanation, markdown, or extra text
+- Use your knowledge to find the most likely official website
+- If you absolutely cannot find it, return "UNKNOWN"
 
 Examples:
 - Sequoia Capital → https://www.sequoiacap.com
 - Andreessen Horowitz → https://a16z.com
 - Paradigm → https://www.paradigm.xyz
-- Public Works → https://www.publicworks.vc
-- Auros Global → https://www.aurosglobal.com
-- SMAPE Capital → https://www.smape.capital
-- Frachtis → https://frachtis.com
+{context}
 
 Your answer (URL only):"""
 
         try:
+            logger.debug(f"LLM prompt for {vc_name}:\n{prompt}")
             response = self.llm.invoke(prompt)
-            url = response.content.strip().strip('"').strip("'")
+            url = response.content.strip()
 
+            if url == "UNKNOWN":
+                logger.info(f"LLM could not find website for {vc_name}")
+                return None
+
+            # Validate the LLM suggestion
             logger.info(f"LLM response for {vc_name}: '{url}'")
-
-            # Validate it looks like a URL
-            if url.startswith("http") and "UNKNOWN" not in url.upper():
-                logger.debug(f"LLM found website for {vc_name}: {url}")
+            if self.validate_url(url):
+                logger.info(f"✓ URL validated: {url}")
                 return url
-
-            logger.warning(f"LLM returned UNKNOWN for {vc_name}, trying domain patterns...")
-
-            # Fallback: try common domain patterns
-            patterns = self.guess_domain_patterns(vc_name)
-            logger.info(f"Trying domain patterns for {vc_name}: {patterns[:3]}...")  # Show first 3
-
-            for pattern in patterns:
-                if self.validate_url(pattern):
-                    logger.info(f"✅ Found valid domain via pattern matching: {pattern}")
-                    return pattern
-
-            logger.debug(f"No valid domain pattern found for {vc_name}")
-            return None
+            else:
+                logger.warning(f"✗ LLM suggested URL is not reachable: {url}")
+                logger.warning(f"Manual research needed for {vc_name} - LLM suggestion failed validation")
+                return None
 
         except Exception as e:
             logger.error(f"Error calling LLM for {vc_name}: {e}")
@@ -208,13 +211,14 @@ Your answer (URL only):"""
             logger.warning(f"✗ URL validation failed for {url}: {e}")
             return False
 
-    def find_and_update_website(self, org: Organization, db_session) -> dict:
+    def find_and_update_website(self, org: Organization, db_session, force: bool = False) -> dict:
         """
         Find and update website for a single VC organization.
 
         Args:
             org: Organization object (must be attached to db_session)
             db_session: SQLAlchemy session for database operations
+            force: If True, re-find website even if already set (will validate existing URL first)
 
         Returns:
             Stats dict with result
@@ -226,38 +230,93 @@ Your answer (URL only):"""
             "website": None,
             "method": None,
             "error": None,
+            "run_id": None,
         }
 
-        # Skip if website already exists
+        # Create agent run to track this workflow
+        run_id = self.create_agent_run(
+            db_session,
+            org.id,
+            org.name,
+            {"force": force},
+        )
+        stats["run_id"] = run_id
+
+        # Check if website already exists
         if org.website:
-            stats["website"] = org.website
-            stats["method"] = "already_exists"
-            logger.debug(f"Skipping {org.name} - website already set: {org.website}")
-            return stats
+            if not force:
+                # Not forcing, skip this VC
+                stats["website"] = org.website
+                stats["method"] = "already_exists"
+                logger.debug(f"Skipping {org.name} - website already set: {org.website}")
+
+                # Mark run as completed
+                self.complete_agent_run(
+                    db_session,
+                    run_id,
+                    "completed",
+                    {
+                        "website": org.website,
+                        "method": "already_exists",
+                        "message": "Website already set, skipped",
+                    },
+                )
+                return stats
+            else:
+                # Forcing, validate existing URL first
+                logger.info(f"Force mode: Validating existing URL for {org.name}: {org.website}")
+                if self.validate_url(org.website):
+                    logger.info(f"✅ Existing URL is valid, keeping it: {org.website}")
+                    stats["website"] = org.website
+                    stats["method"] = "validated_existing"
+                    stats["found"] = True
+
+                    # Mark run as completed
+                    self.complete_agent_run(
+                        db_session,
+                        run_id,
+                        "completed",
+                        {
+                            "website": org.website,
+                            "method": "validated_existing",
+                            "message": "Existing URL validated successfully",
+                        },
+                    )
+                    return stats
+                else:
+                    logger.warning(f"❌ Existing URL is invalid, will try to find new one: {org.website}")
+                    # Clear the invalid URL so we can find a new one
+                    org.website = None
 
         try:
             # Strategy 1: Extract from sources
-            source_domains = self.extract_domains_from_sources(org)
-            if source_domains:
-                logger.info(f"Found {len(source_domains)} potential domains in sources for {org.name}")
+            source_urls = self.extract_urls_from_sources(org)
+            if source_urls:
+                logger.info(f"Found {len(source_urls)} potential URLs in sources for {org.name}")
 
-            # Strategy 2: Ask LLM
-            website = self.find_website_with_llm(org.name, source_domains)
+            # Strategy 2: Ask LLM (with automatic validation)
+            website = self.find_website_with_llm(org.name, source_urls)
 
             if not website:
-                stats["error"] = "LLM couldn't find website"
-                logger.warning(f"No website found for {org.name}")
+                stats["error"] = "No valid website found (LLM + patterns failed)"
+                logger.warning(f"❌ No valid website found for {org.name}")
+
+                # Mark run as failed
+                self.complete_agent_run(
+                    db_session,
+                    run_id,
+                    "failed",
+                    {
+                        "website": None,
+                        "method": "llm_with_fallback",
+                        "source_urls_tried": source_urls,
+                    },
+                    error_message="No valid website found (LLM + pattern matching failed)",
+                )
                 return stats
 
-            # Validate URL (optional, off by default)
-            if self.validate_urls:
-                if not self.validate_url(website):
-                    stats["error"] = f"URL validation failed: {website}"
-                    logger.warning(f"URL validation failed for {org.name}: {website}")
-                    return stats
-                logger.info(f"✓ URL validated for {org.name}: {website}")
-            else:
-                logger.debug(f"Skipping validation for {org.name}: {website}")
+            # URL is already validated by find_website_with_llm
+            logger.info(f"✓ Found and validated website for {org.name}: {website}")
 
             # Update org (session will commit later)
             org.website = website
@@ -280,12 +339,37 @@ Your answer (URL only):"""
             stats["website"] = website
             stats["method"] = "llm_discovery"
 
+            # Mark run as completed
+            self.complete_agent_run(
+                db_session,
+                run_id,
+                "completed",
+                {
+                    "website": website,
+                    "method": "llm_discovery",
+                    "validated": True,
+                    "source_urls_tried": source_urls,
+                },
+            )
+
             logger.info(f"✅ Updated {org.name} → {website}")
 
         except Exception as e:
             stats["error"] = str(e)
             logger.error(f"Error processing {org.name}: {e}")
             db_session.rollback()
+
+            # Mark run as failed
+            self.complete_agent_run(
+                db_session,
+                run_id,
+                "failed",
+                {
+                    "website": None,
+                    "error": str(e),
+                },
+                error_message=str(e),
+            )
 
         return stats
 
@@ -332,7 +416,7 @@ Your answer (URL only):"""
                     select(Organization).where(Organization.id == vc_id)
                 ).scalar_one()
 
-                stats = self.find_and_update_website(vc, db)
+                stats = self.find_and_update_website(vc, db, force)
 
                 if stats["method"] == "already_exists":
                     overall_stats["already_had_website"] += 1
@@ -362,16 +446,18 @@ def main():
         help="Re-find websites even if already set",
     )
     parser.add_argument(
-        "--validate",
+        "--no-perplexity",
         action="store_true",
-        help="Validate URLs via HTTP request (slower, may fail on firewalls)",
+        help="Use OpenAI GPT instead of Perplexity AI (Perplexity is default)",
     )
 
     args = parser.parse_args()
 
     logger.info("🔍 Starting VC Website Finder Agent...")
+    logger.info("   ✓ URL validation: ENABLED (always)")
+    logger.info("   ✓ Strategy: LLM-only (no pattern guessing)")
 
-    finder = VCWebsiteFinder(validate_urls=args.validate)
+    finder = VCWebsiteFinder(use_perplexity=not args.no_perplexity)
 
     if args.vc_name:
         # Process specific VC
@@ -386,7 +472,7 @@ def main():
                 logger.error(f"VC not found: {args.vc_name}")
                 return
 
-            stats = finder.find_and_update_website(vc, db)
+            stats = finder.find_and_update_website(vc, db, args.force)
             logger.info(f"\n📊 Result: {stats}")
     else:
         # Process all VCs
