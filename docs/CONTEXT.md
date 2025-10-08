@@ -5,24 +5,27 @@
 End‑to‑end pipeline to (1) fetch crypto VC deals, (2) crawl VC sites for team members, (3) enrich contacts with socials (Farcaster, X/Twitter; infer Telegram handle), and (4) generate a short personalized intro message for each target contact.
 
 
-## Current Status (Updated: Oct 8, 2025)
+## Current Status (Updated: Oct 8, 2025 - Evening)
 ✅ **Completed:**
 - Database architecture: Full SQLAlchemy 2.0 ORM models (8 tables)
 - Database management: Pure Python init/reset via SQLAlchemy (no SQL files)
-- Deal loader: 208 crypto deals loaded from DefiLlama (195 startups, 13 skipped)
-- Currency handling: Fixed USD amounts (was incorrectly named EUR)
-- VC extraction: Now creating separate VC organizations from investor data
-- Architecture decision: Simple scripts for ETL, LangGraph for complex decision workflows
+- Deal loader: 208 crypto deals loaded from DefiLlama (10 startups, 21 VCs extracted)
+- VC extraction: Automatically creates VC orgs from deal investor lists
+- **VC Crawler Agent**: Production-ready with intelligent team page discovery
+  - OpenAI GPT-4o-mini for data extraction
+  - Smart time-based refresh (30-day default, configurable)
+  - Full URL storage (profile_url, headshot_url)
+  - Evidence tracking with screenshots
+  - Stats: 26 people extracted from Paradigm VC
+- Test VCs added: Andreessen Horowitz, Sequoia, Paradigm, Multicoin, Pantera
 
 ⏳ **In Progress:**
-- Extracting VC organizations from deal investor lists
-- Building VC crawler agent for enrichment
+- Testing VC crawler on all 5 test VCs
 
 🔜 **Next Steps:**
-- Complete VC extraction from existing deals
 - Build social enricher agent (Farcaster, X/Twitter)
 - Build intro generator agent
-- Create Retool/Airtable UI
+- Create Retool/Airtable UI (postponed - requires license)
 
 
 ## Outcomes (by EOW)
@@ -109,13 +112,17 @@ End‑to‑end pipeline to (1) fetch crypto VC deals, (2) crawl VC sites for tea
 
 **Implemented:**
 1. ✅ **Deals Ingestor** — Fetch raises from DefiLlama, normalize startups/investors, idempotent upserts. Simple script (not LangGraph).
+2. ✅ **VC Extractor** — Extract VC organizations from deal investor lists, create org records with kind='vc'. Built into deals loader.
+3. ✅ **VC Crawler** — Discover team pages, extract (name, title, profile URL), store evidence. Uses OpenAI GPT-4o-mini + Playwright.
+   - **Features**: Smart navigation (common paths + LLM analysis), full URL storage, time-based refresh (30-day default)
+   - **CLI**: `python -m src.agents.vc_crawler [--limit N] [--vc-name "Name"] [--force-refresh]`
+   - **Stats tracking**: created/updated/skipped counts with enrichment history
+   - **Evidence**: Screenshots + extracted data with confidence scores
 
 **In Development:**
-2. ⏳ **VC Extractor** — Extract VC organizations from deal investor lists, create org records with kind='vc'
+4. ⏳ **Social Enricher** — Find Farcaster & X/Twitter; infer Telegram handle; set confidence. LangGraph workflow.
 
 **Planned:**
-3. 🔜 **VC Crawler** — Discover Team pages, extract (name, title, profile URL), store evidence. LangGraph workflow.
-4. 🔜 **Social Enricher** — Find Farcaster & X/Twitter; infer Telegram handle; set confidence. LangGraph workflow.
 5. 🔜 **Intro Personalizer** — Generate 2 variants of short outreach copy; store to `intros`. LangGraph workflow.
 
 **Architecture Decision:**
@@ -149,8 +156,12 @@ End‑to‑end pipeline to (1) fetch crypto VC deals, (2) crawl VC sites for tea
 2. **Script vs Agent**: Use simple scripts for ETL, LangGraph for complex workflows
 3. **Currency Fix**: DefiLlama amounts are USD, not EUR (fixed Oct 2025)
 4. **VC Extraction**: Create separate VC orgs from investor lists, not just store as strings
-5. **Session Management**: Capture IDs before session.close() to avoid detachment errors
-6. **None Handling**: Explicit None checks before type conversion (e.g., float(amount))
+5. **VC Extraction**: Create separate VC orgs from investor lists, not just store as strings
+6. **Session Management**: Capture IDs before session.close() to avoid detachment errors
+7. **None Handling**: Explicit None checks before type conversion (e.g., float(amount))
+8. **Time-Based Refresh**: Skip updates for recently crawled data (30-day default) to save API costs
+9. **Full URLs**: Always store complete URLs with domain, not relative paths
+10. **Evidence Trail**: Store extraction method, confidence scores, and screenshots for all crawled data
 
 
 ## Prompts & tone

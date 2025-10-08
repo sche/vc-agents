@@ -88,7 +88,7 @@ load-deals:
 	python scripts/load_defillama_deals.py
 
 load-deals-limit:
-	python scripts/load_defillama_deals.py --limit 50
+	python scripts/load_defillama_deals.py --limit 10
 
 run-crawler:
 	python -m src.agents.vc_crawler
