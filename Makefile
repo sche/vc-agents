@@ -22,6 +22,9 @@ help:
 	@echo ""
 	@echo "API Server:"
 	@echo "  make run-api        - Start FastAPI server (port 8000)"
+	@echo ""
+	@echo "Admin UI:"
+	@echo "  make run-admin      - Start Streamlit admin dashboard (port 8501)"
 
 # Installation
 install:
@@ -111,6 +114,10 @@ run-pipeline:
 # API Server (for external integrations)
 run-api:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Admin UI (Streamlit dashboard)
+run-admin:
+	PYTHONPATH=. streamlit run src/admin/app.py --server.port 8501 --server.address 0.0.0.0
 
 # Development helpers
 shell:

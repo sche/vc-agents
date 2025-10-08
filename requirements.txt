@@ -78,7 +78,7 @@ ipython>=8.20.0  # Better REPL
 # ============================================================================
 # Optional: UI/Admin Tools
 # ============================================================================
-# API Server
+# API Server & Admin UI
 fastapi>=0.109.0
 uvicorn[standard]>=0.25.0
-# streamlit>=1.30.0  # Quick admin UI alternative
+streamlit>=1.30.0  # Admin dashboard UI
