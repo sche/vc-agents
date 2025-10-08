@@ -67,7 +67,9 @@ railway run python -m src.db.init_db
 ```
 
 **Documentation:**
-- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md) - Step-by-step deployment to Railway
+- [Supabase Quick Start](docs/SUPABASE_QUICK_START.md) - **Start here!** Get your DATABASE_URL in 3 steps
+- [Supabase Setup Guide](docs/SUPABASE_SETUP.md) - Complete Supabase database setup
+- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md) - Step-by-step API deployment to Railway
 - [Retool API Integration](docs/RETOOL_API.md) - Retool Cloud setup guide
 - [Retool Triggers Quick Start](docs/RETOOL_TRIGGERS.md) - Trigger agents from Retool Cloud UI
 

@@ -13,14 +13,38 @@ from src.config import settings
 db_url = str(settings.database_url)
 if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+elif db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
 
 # Async database URL (using asyncpg driver)
 async_db_url = db_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
 
+# Supabase Transaction Mode (port 6543) requires disabling prepared statements
+# Check if using Supabase pooler on port 6543 (transaction mode)
+connect_args = {}
+if "pooler.supabase.com:6543" in db_url:
+    # Disable prepared statements for Supabase transaction mode
+    connect_args["prepare_threshold"] = None
+    print("⚙️  Detected Supabase transaction mode - prepared statements disabled")
+
+async_connect_args = {}
+if "pooler.supabase.com:6543" in async_db_url:
+    # For asyncpg, use statement_cache_size=0 to disable prepared statements
+    async_connect_args["statement_cache_size"] = 0
+    print("⚙️  Detected Supabase transaction mode (async) - statement cache disabled")
+
 # Create engines
-engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+engine = create_engine(
+    db_url,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args=connect_args
+)
 async_engine = create_async_engine(
-    async_db_url, echo=False, pool_pre_ping=True
+    async_db_url,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args=async_connect_args
 )
 
 # Create session factories

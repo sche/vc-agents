@@ -9,6 +9,7 @@ help:
 	@echo "  make db-create      - Create PostgreSQL database (one-time)"
 	@echo "  make db-init        - Initialize database schema from SQLAlchemy models"
 	@echo "  make db-reset       - Drop and recreate database (⚠️  destructive)"
+	@echo "  make db-test        - Test database connection (Supabase/PostgreSQL)"
 	@echo "  make test           - Run test suite"
 	@echo "  make lint           - Run linters (ruff, mypy)"
 	@echo "  make format         - Format code (black, ruff)"
@@ -51,6 +52,9 @@ db-reset:
 	@read -r confirm
 	python -m src.db.init_db --reset
 	@echo "✅ Database reset complete"
+
+db-test:
+	python scripts/test_supabase_connection.py
 
 # Testing
 test:
