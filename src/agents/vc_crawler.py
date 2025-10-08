@@ -540,7 +540,60 @@ Return ONLY the JSON array (no explanation):"""
                 try:
                     # Find team page
                     team_url = self.find_team_page(browser, website)
-                    if not team_url:
+
+                    # If no team page found, try Perplexity fallback directly
+                    if not team_url and self.use_fallback:
+                        logger.warning(f"No team page found for {org.name}, trying Perplexity fallback...")
+                        people_data = self._fallback_extraction_with_perplexity(
+                            team_url=website,  # Use main website as reference
+                            structured_text=None,
+                            html_content="",
+                            screenshot_path=None,
+                            org_id=str(org.id),
+                            org_name=org.name
+                        )
+                        stats["people_found"] = len(people_data)
+
+                        # Save to database
+                        for person_data in people_data:
+                            # Add metadata since we didn't go through extract_people_from_page
+                            person_data["source_url"] = website
+                            person_data["screenshot_path"] = None
+                            person_data["org_id"] = str(org.id)
+
+                            person_id, status = self.save_person(person_data, str(org.id), website)
+
+                            if person_id:
+                                if status == "created":
+                                    stats["people_created"] += 1
+                                elif status == "updated":
+                                    stats["people_updated"] += 1
+                                elif status == "skipped":
+                                    stats["people_skipped"] += 1
+
+                                # Save role if title exists (only for created/updated, not skipped)
+                                if status != "skipped" and person_data.get("title"):
+                                    self.save_role(person_id, str(org.id), person_data["title"])
+                                    stats["roles_created"] += 1
+
+                                # Save evidence (only for created/updated, not skipped)
+                                if status != "skipped":
+                                    self.save_evidence(person_id, person_data, website)
+
+                        # Commit all changes
+                        with get_db() as db:
+                            db.commit()
+
+                        logger.info(
+                            f"✅ {org.name}: {stats['people_created']} created, "
+                            f"{stats['people_updated']} updated, {stats['people_skipped']} skipped, "
+                            f"{stats['roles_created']} roles (via Perplexity fallback)"
+                        )
+
+                        # Mark as completed successfully
+                        self.complete_agent_run(run_id, "completed", stats)
+                        return stats
+                    elif not team_url:
                         stats["error"] = "Team page not found"
                         self.complete_agent_run(run_id, "failed", stats, "Team page not found")
                         return stats
