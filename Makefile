@@ -20,12 +20,7 @@ help:
 	@echo "  make run-pipeline   - Run full pipeline"
 	@echo ""
 	@echo "API Server:"
-	@echo "  make run-api        - Start FastAPI server for Retool integration (port 8000)"
-	@echo ""
-	@echo "UI Commands:"
-	@echo "  make retool-start   - Start Retool UI (http://localhost:3000)"
-	@echo "  make retool-stop    - Stop Retool UI"
-	@echo "  make retool-logs    - View Retool logs"
+	@echo "  make run-api        - Start FastAPI server (port 8000)"
 
 # Installation
 install:
@@ -109,7 +104,7 @@ run-intro:
 run-pipeline:
 	python -m src.run_pipeline
 
-# API Server (for Retool integration)
+# API Server (for external integrations)
 run-api:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -119,22 +114,3 @@ shell:
 
 check: format lint test
 	@echo "✅ All checks passed!"
-
-# Retool UI
-retool-start:
-	@echo "🚀 Starting Retool..."
-	docker compose -f docker-compose.retool.yml up -d
-	@echo "✅ Retool is starting..."
-	@echo "📍 Access at: http://localhost:3000"
-	@echo "⏳ Wait ~30 seconds for Retool to be ready"
-	@echo "📖 See docs/RETOOL_SETUP.md for connection instructions"
-
-retool-stop:
-	docker compose -f docker-compose.retool.yml down
-
-retool-logs:
-	docker logs -f retool
-
-retool-restart:
-	docker compose -f docker-compose.retool.yml restart
-	@echo "✅ Retool restarted"

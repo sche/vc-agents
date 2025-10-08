@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FastAPI server for triggering agents from Retool.
+FastAPI server for triggering agents via HTTP endpoints.
 """
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException

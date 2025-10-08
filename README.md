@@ -40,6 +40,40 @@ make verify
 make run-deals
 ```
 
+## 🚀 Deployment & Production
+
+### Cloud Deployment
+
+Deploy the API and database to the cloud:
+
+**Stack:**
+- **Database**: [Supabase](https://supabase.com) - Managed PostgreSQL (free tier available)
+- **API Server**: [Railway](https://railway.app) - Auto-deploy from GitHub (~$5-10/month)
+
+**Quick Deploy:**
+
+```bash
+# 1. Deploy database to Supabase
+# - Create project at supabase.com
+# - Copy connection string
+
+# 2. Deploy API to Railway
+# - Connect GitHub repo (supports private repos)
+# - Railway will auto-detect configuration
+# - Add environment variables (see Railway guide)
+
+# 3. Initialize database schema
+railway run python -m src.db.init_db
+```
+
+**Documentation:**
+- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md) - Step-by-step deployment to Railway
+- [Retool API Integration](docs/RETOOL_API.md) - Retool Cloud setup guide
+- [Retool Triggers Quick Start](docs/RETOOL_TRIGGERS.md) - Trigger agents from Retool Cloud UI
+
+### Local API Server
+```
+
 ## � Deployment & Production
 
 ### Cloud Deployment (Recommended for Retool Integration)
@@ -84,6 +118,9 @@ Run the FastAPI server locally for development:
 ```bash
 make run-api
 # Access at http://localhost:8000/docs
+```
+
+## 📚 Documentation
 ```
 
 ## �📚 Documentation
