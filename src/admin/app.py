@@ -20,6 +20,43 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+# Password protection
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == "memehallarules":  # Change this password!
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    # Return True if password is already validated
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Show password input
+    st.markdown("### 🔐 Admin Login")
+    st.text_input(
+        "Password",
+        type="password",
+        on_change=password_entered,
+        key="password"
+    )
+
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("😕 Password incorrect")
+
+    return False
+
+
+# Stop here if not authenticated
+if not check_password():
+    st.stop()
+
+
 # Custom CSS
 st.markdown("""
 <style>
