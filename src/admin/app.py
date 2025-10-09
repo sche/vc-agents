@@ -342,120 +342,144 @@ def show_people():
         st.info("No people found. Run the VC crawler first: `make run-crawler`")
         return
 
-    st.caption(f"Showing {len(people)} people")
+    # Group people by organization
+    from collections import defaultdict
+    people_by_org = defaultdict(list)
 
-    # Display people
     for person in people:
-        socials = person['socials'] if isinstance(person['socials'], dict) else {}
+        org_name = person['org_name'] or "Unknown Organization"
+        people_by_org[org_name].append(person)
 
-        # Handle both old format (nested dict) and new format (flat keys)
-        # Twitter
-        if isinstance(socials.get('twitter'), dict):
-            twitter_username = socials['twitter'].get('username')
-            twitter_confidence = socials['twitter'].get('confidence', 0)
-        else:
-            twitter_username = socials.get('twitter')
-            twitter_confidence = socials.get('twitter_confidence', 0)
+    # Sort organizations alphabetically
+    sorted_orgs = sorted(people_by_org.keys())
 
-        # Farcaster
-        if isinstance(socials.get('farcaster'), dict):
-            farcaster_username = socials['farcaster'].get('username')
-            farcaster_fid = socials['farcaster'].get('fid')
-            farcaster_confidence = socials['farcaster'].get('confidence', 0)
-        else:
-            farcaster_username = socials.get('farcaster')
-            farcaster_fid = socials.get('farcaster_fid')
-            farcaster_confidence = socials.get('farcaster_confidence', 0)
+    st.caption(f"Showing {len(people)} people across {len(people_by_org)} organizations")
 
-        status_icons = []
-        if twitter_username:
-            status_icons.append("🐦")
-        if farcaster_username:
-            status_icons.append("🟣")
-        if person['telegram_handle']:
-            status_icons.append("✈️")
+    # Display people grouped by organization
+    for org_name in sorted_orgs:
+        org_people = people_by_org[org_name]
 
-        # Build display name with org and role
-        display_name = person['full_name']
-        if person['org_name'] and person['title']:
-            display_name = f"{person['full_name']} • {person['title']} @ {person['org_name']}"
-        elif person['org_name']:
-            display_name = f"{person['full_name']} @ {person['org_name']}"
-        elif person['title']:
-            display_name = f"{person['full_name']} • {person['title']}"
+        # Organization header with count
+        with st.expander(f"🏢 {org_name} ({len(org_people)} {'person' if len(org_people) == 1 else 'people'})", expanded=False):
+            for person in org_people:
+                socials = person['socials'] if isinstance(person['socials'], dict) else {}
 
-        with st.expander(f"{display_name} {' '.join(status_icons)}"):
-            col1, col2 = st.columns([3, 1])
-
-            with col1:
-                st.write(f"**Name:** {person['full_name']}")
-
-                # Organization
-                if person['org_name']:
-                    st.write(f"**Organization:** {person['org_name']}")
-                    st.write(f"**Title:** {person['title']}")
-
-                # Social profiles section
-                st.write("**Social Profiles:**")
-
-                # Twitter/X
-                if twitter_username:
-                    st.write(f"  🐦 X (Twitter): [@{twitter_username}](https://x.com/{twitter_username}) (confidence: {twitter_confidence:.2f})")
+                # Handle both old format (nested dict) and new format (flat keys)
+                # Twitter
+                if isinstance(socials.get('twitter'), dict):
+                    twitter_username = socials['twitter'].get('username')
+                    twitter_confidence = socials['twitter'].get('confidence', 0)
                 else:
-                    st.write("  🐦 X (Twitter): Not found")
+                    twitter_username = socials.get('twitter')
+                    twitter_confidence = socials.get('twitter_confidence', 0)
 
                 # Farcaster
-                if farcaster_username:
-                    fid_display = f" (FID: {farcaster_fid})" if farcaster_fid else ""
-                    st.write(f"  🟣 Farcaster: [@{farcaster_username}](https://farcaster.xyz/{farcaster_username}){fid_display} (confidence: {farcaster_confidence:.2f})")
+                if isinstance(socials.get('farcaster'), dict):
+                    farcaster_username = socials['farcaster'].get('username')
+                    farcaster_fid = socials['farcaster'].get('fid')
+                    farcaster_confidence = socials['farcaster'].get('confidence', 0)
                 else:
-                    st.write("  🟣 Farcaster: Not found")
+                    farcaster_username = socials.get('farcaster')
+                    farcaster_fid = socials.get('farcaster_fid')
+                    farcaster_confidence = socials.get('farcaster_confidence', 0)
 
-                # Telegram - editable
-                telegram = st.text_input(
-                    "✈️ Telegram handle",
-                    value=person['telegram_handle'] or "",
-                    key=f"telegram_{person['id']}",
-                    placeholder="@username"
-                )
-                if telegram != (person['telegram_handle'] or ""):
-                    if st.button("Save Telegram", key=f"save_telegram_{person['id']}"):
-                        with get_db() as db:
-                            db.query(Person).filter(
-                                Person.id == person['id']
-                            ).update({Person.telegram_handle: telegram or None})
-                            db.commit()
-                        st.success("Updated!")
-                        st.rerun()
+                status_icons = []
+                if twitter_username:
+                    status_icons.append("🐦")
+                if farcaster_username:
+                    status_icons.append("🟣")
+                if person['telegram_handle']:
+                    status_icons.append("✈️")
 
-                # Show all other socials if any
-                known_keys = {'twitter', 'twitter_confidence', 'farcaster', 'farcaster_fid', 'farcaster_confidence'}
-                other_socials = {k: v for k, v in socials.items() if k not in known_keys}
-                if other_socials:
-                    st.write("**Other Socials:**")
-                    for platform, data in other_socials.items():
-                        if isinstance(data, dict):
-                            username = data.get('username', data.get('handle', 'N/A'))
-                            confidence = data.get('confidence', 0)
-                            st.write(f"  • {platform.title()}: {username} (confidence: {confidence:.2f})")
+                # Build display name - simpler since we're already grouped by org
+                display_name = person['full_name']
+                if person['title']:
+                    display_name = f"{person['full_name']} • {person['title']}"
+
+                with st.expander(f"{display_name} {' '.join(status_icons)}"):
+                    col1, col2 = st.columns([3, 1])
+
+                    with col1:
+                        st.write(f"**Name:** {person['full_name']}")
+
+                        # Title (org already shown in parent expander)
+                        if person['title']:
+                            st.write(f"**Title:** {person['title']}")
+
+                        # Social profiles section
+                        st.write("**Social Profiles:**")
+
+                        # Twitter/X
+                        if twitter_username:
+                            st.write(f"  🐦 X (Twitter): [@{twitter_username}](https://x.com/{twitter_username}) (confidence: {twitter_confidence:.2f})")
                         else:
-                            st.write(f"  • {platform.title()}: {data}")
+                            st.write("  🐦 X (Twitter): Not found")
 
-                st.write(f"**Telegram Confidence:** {person['telegram_confidence'] or 0:.2f}")
-                st.write(f"**Updated:** {person['updated_at'].strftime('%Y-%m-%d %H:%M')}")
+                        # Farcaster
+                        if farcaster_username:
+                            fid_display = f" (FID: {farcaster_fid})" if farcaster_fid else ""
+                            st.write(f"  🟣 Farcaster: [@{farcaster_username}](https://farcaster.xyz/{farcaster_username}){fid_display} (confidence: {farcaster_confidence:.2f})")
+                        else:
+                            st.write("  🟣 Farcaster: Not found")
 
-                # Show screenshot if available
-                if person['screenshot']:
-                    st.write("**Latest Screenshot:**")
-                    try:
-                        st.image(person['screenshot'], caption="Team page screenshot", use_container_width=True)
-                    except Exception as e:
-                        st.caption(f"Screenshot path: {person['screenshot']}")
-                        st.caption(f"(Could not load image: {e})")
+                        # Telegram - editable
+                        telegram = st.text_input(
+                            "✈️ Telegram handle",
+                            value=person['telegram_handle'] or "",
+                            key=f"telegram_{person['id']}",
+                            placeholder="@username"
+                        )
+                        if telegram != (person['telegram_handle'] or ""):
+                            if st.button("Save Telegram", key=f"save_telegram_{person['id']}"):
+                                with get_db() as db:
+                                    db.query(Person).filter(
+                                        Person.id == person['id']
+                                    ).update({Person.telegram_handle: telegram or None})
+                                    db.commit()
+                                st.success("Updated!")
+                                st.rerun()
 
-            with col2:
-                if st.button("💼 Enrich", key=f"enrich_{person['id']}"):
-                    run_social_enricher(person['full_name'])
+                        # Show all other socials if any
+                        known_keys = {'twitter', 'twitter_confidence', 'farcaster', 'farcaster_fid', 'farcaster_confidence'}
+                        other_socials = {k: v for k, v in socials.items() if k not in known_keys}
+                        if other_socials:
+                            st.write("**Other Socials:**")
+                            for platform, data in other_socials.items():
+                                if isinstance(data, dict):
+                                    username = data.get('username', data.get('handle', 'N/A'))
+                                    confidence = data.get('confidence', 0)
+                                    st.write(f"  • {platform.title()}: {username} (confidence: {confidence:.2f})")
+                                else:
+                                    st.write(f"  • {platform.title()}: {data}")
+
+                        st.write(f"**Telegram Confidence:** {person['telegram_confidence'] or 0:.2f}")
+                        st.write(f"**Updated:** {person['updated_at'].strftime('%Y-%m-%d %H:%M')}")
+
+                        # Show screenshot if available
+                        if person['screenshot']:
+                            st.write("**Latest Screenshot:**")
+                            try:
+                                st.image(person['screenshot'], caption="Team page screenshot", use_container_width=True)
+                            except Exception as e:
+                                st.caption(f"Screenshot path: {person['screenshot']}")
+                                st.caption(f"(Could not load image: {e})")
+
+                    with col2:
+                        if st.button("💼 Enrich", key=f"enrich_{person['id']}"):
+                            run_social_enricher(person['full_name'])
+
+                        if st.button("🗑️ Delete", key=f"del_person_{person['id']}"):
+                            if st.session_state.get(f"confirm_del_person_{person['id']}"):
+                                with get_db() as db:
+                                    db.query(Person).filter(
+                                        Person.id == person['id']
+                                    ).delete()
+                                    db.commit()
+                                st.success("Deleted!")
+                                st.rerun()
+                            else:
+                                st.session_state[f"confirm_del_person_{person['id']}"] = True
+                                st.warning("Click again to confirm")
 
 
 def show_agent_runs():
