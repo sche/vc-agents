@@ -422,13 +422,13 @@ def show_people():
     with col3:
         sort_by = st.selectbox("Sort by", ["Name", "Updated date", "Confidence"])
     with col4:
-        page_size = st.selectbox("Per page", [25, 50, 100, 200], index=1, key="people_page_size")
+        orgs_per_page = st.selectbox("Organizations per page", [5, 10, 20, 50], index=1, key="people_page_size")
 
     # Initialize pagination state
     if 'people_page' not in st.session_state:
         st.session_state.people_page = 0
 
-    # Get people
+    # Get all people (we'll paginate by organization, not by person)
     with get_db() as db:
         query = db.query(Person)
 
@@ -455,15 +455,11 @@ def show_people():
         else:
             query = query.order_by(desc(Person.telegram_confidence))
 
-        # Get total count for pagination
-        total_count = query.count()
-
-        # Apply pagination
-        offset = st.session_state.people_page * page_size
-        people_data = query.limit(page_size).offset(offset).all()
+        # Get ALL people matching filters (we paginate by org, not person)
+        people_data = query.all()
 
         # Convert to dictionaries to avoid detached instance errors
-        people = []
+        all_people = []
         for person in people_data:
             # Get role within the same session
             role = db.query(RoleEmployment, Organization).join(
@@ -476,7 +472,7 @@ def show_people():
                 Evidence.screenshot_url.isnot(None)
             ).order_by(desc(Evidence.created_at)).first()
 
-            people.append({
+            all_people.append({
                 'id': str(person.id),
                 'full_name': person.full_name,
                 'socials': person.socials or {},
@@ -488,7 +484,7 @@ def show_people():
                 'screenshot': latest_screenshot[0] if latest_screenshot else None
             })
 
-    if not people:
+    if not all_people:
         st.info("No people found. Run the VC crawler first: `make run-crawler`")
         return
 
@@ -496,19 +492,25 @@ def show_people():
     from collections import defaultdict
     people_by_org = defaultdict(list)
 
-    for person in people:
+    for person in all_people:
         org_name = person['org_name'] or "Unknown Organization"
         people_by_org[org_name].append(person)
 
     # Sort organizations alphabetically
-    sorted_orgs = sorted(people_by_org.keys())
+    all_orgs = sorted(people_by_org.keys())
 
-    start_idx = offset + 1
-    end_idx = min(offset + len(people), total_count)
-    st.caption(f"Showing {start_idx}-{end_idx} of {total_count} people across {len(people_by_org)} organizations")
+    # Paginate by organizations
+    total_orgs = len(all_orgs)
+    offset = st.session_state.people_page * orgs_per_page
+    paginated_orgs = all_orgs[offset:offset + orgs_per_page]
+
+    # Count total people in paginated orgs
+    paginated_people_count = sum(len(people_by_org[org]) for org in paginated_orgs)
+
+    st.caption(f"Showing {len(paginated_orgs)} organizations ({paginated_people_count} people) out of {total_orgs} total organizations ({len(all_people)} total people)")
 
     # Display people grouped by organization
-    for org_name in sorted_orgs:
+    for org_name in paginated_orgs:
         org_people = people_by_org[org_name]
 
         # Organization header with count
@@ -634,7 +636,7 @@ def show_people():
                                 st.warning("Click again to confirm")
 
     # Pagination controls
-    total_pages = (total_count + page_size - 1) // page_size
+    total_pages = (total_orgs + orgs_per_page - 1) // orgs_per_page
     if total_pages > 1:
         st.write("---")
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -645,13 +647,12 @@ def show_people():
                 st.rerun()
 
         with col2:
-            st.write(f"Page {st.session_state.people_page + 1} of {total_pages} (Total: {total_count} people)")
+            st.write(f"Page {st.session_state.people_page + 1} of {total_pages} (Total: {total_orgs} organizations)")
 
         with col3:
             if st.button("Next ➡️", key="people_next", disabled=st.session_state.people_page >= total_pages - 1):
                 st.session_state.people_page += 1
                 st.rerun()
-
 
 def show_agent_runs():
     """Show agent execution history."""
