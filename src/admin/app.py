@@ -139,17 +139,17 @@ def show_dashboard():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔍 Find All VC Websites", use_container_width=True):
+        if st.button("🔍 Find All VC Websites", width='stretch'):
             st.caption("Skips VCs that already have websites")
             run_website_finder()
 
     with col2:
-        if st.button("🕷️ Crawl All VCs", use_container_width=True):
+        if st.button("🕷️ Crawl All VCs", width='stretch'):
             st.caption("Skips VCs that already have team members")
             run_vc_crawler()
 
     with col3:
-        if st.button("💼 Enrich All People", use_container_width=True):
+        if st.button("💼 Enrich All People", width='stretch'):
             st.caption("Skips people already enriched with socials")
             run_social_enricher()
 
@@ -289,7 +289,7 @@ def show_orgs():
                 if org['screenshot']:
                     st.write("**Latest Screenshot:**")
                     try:
-                        st.image(org['screenshot'], caption="Team page screenshot", use_container_width=True)
+                        st.image(org['screenshot'], caption="Team page screenshot", width='stretch')
                     except Exception as e:
                         st.caption(f"Screenshot path: {org['screenshot']}")
                         st.caption(f"(Could not load image: {e})")
@@ -613,7 +613,7 @@ def show_people():
                         if person['screenshot']:
                             st.write("**Latest Screenshot:**")
                             try:
-                                st.image(person['screenshot'], caption="Team page screenshot", use_container_width=True)
+                                st.image(person['screenshot'], caption="Team page screenshot", width='stretch')
                             except Exception as e:
                                 st.caption(f"Screenshot path: {person['screenshot']}")
                                 st.caption(f"(Could not load image: {e})")
@@ -1032,7 +1032,7 @@ def main():
     st.sidebar.divider()
 
     # Refresh button
-    if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    if st.sidebar.button("🔄 Refresh Data", width='stretch'):
         st.session_state.last_refresh = datetime.now()
         st.rerun()
 

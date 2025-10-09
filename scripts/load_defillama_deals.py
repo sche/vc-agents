@@ -40,13 +40,26 @@ def create_or_update_org(parsed_deal: dict) -> str:
         if existing_org:
             # Update sources if org exists
             existing_org.focus = parsed_deal.get("chains", [])
-            existing_org.sources = existing_org.sources + [
-                {
-                    "type": "defillama",
-                    "url": parsed_deal.get("source_url", ""),
-                    "imported_at": datetime.utcnow().isoformat(),
-                }
-            ]
+
+            # Only add source if URL doesn't already exist
+            new_source_url = parsed_deal.get("source_url", "")
+            source_exists = any(
+                s.get("url") == new_source_url
+                for s in existing_org.sources
+            )
+
+            if not source_exists:
+                existing_org.sources = existing_org.sources + [
+                    {
+                        "type": "defillama",
+                        "url": new_source_url,
+                        "imported_at": datetime.utcnow().isoformat(),
+                    }
+                ]
+                logger.debug(f"Added new source to org: {org_name}")
+            else:
+                logger.debug(f"Source already exists for org: {org_name}")
+
             logger.info(f"Updated org: {org_name}")
             org_id = str(existing_org.id)
             return org_id
@@ -85,14 +98,24 @@ def create_or_update_vc(vc_name: str, source_url: str) -> str:
 
         if existing_vc:
             # Update sources if VC exists
-            existing_vc.sources = existing_vc.sources + [
-                {
-                    "type": "defillama_investor",
-                    "url": source_url,
-                    "imported_at": datetime.utcnow().isoformat(),
-                }
-            ]
-            logger.debug(f"Updated VC: {vc_name}")
+            # Only add source if URL doesn't already exist
+            source_exists = any(
+                s.get("url") == source_url
+                for s in existing_vc.sources
+            )
+
+            if not source_exists:
+                existing_vc.sources = existing_vc.sources + [
+                    {
+                        "type": "defillama_investor",
+                        "url": source_url,
+                        "imported_at": datetime.utcnow().isoformat(),
+                    }
+                ]
+                logger.debug(f"Added new source to VC: {vc_name}")
+            else:
+                logger.debug(f"Source already exists for VC: {vc_name}")
+
             vc_id = str(existing_vc.id)
             return vc_id
         else:
