@@ -159,13 +159,19 @@ def show_orgs():
     st.header("🏢 Organizations (VCs)")
 
     # Filters
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     with col1:
         search = st.text_input("Search by name", placeholder="Enter VC name...")
     with col2:
         has_website = st.selectbox("Website status", ["All", "With website", "Without website"])
     with col3:
         sort_by = st.selectbox("Sort by", ["Name", "Created date", "Updated date"])
+    with col4:
+        page_size = st.selectbox("Per page", [25, 50, 100, 200], index=1)
+
+    # Initialize pagination state
+    if 'orgs_page' not in st.session_state:
+        st.session_state.orgs_page = 0
 
     # Get organizations
     with get_db() as db:
@@ -186,7 +192,12 @@ def show_orgs():
         else:
             query = query.order_by(desc(Organization.updated_at))
 
-        orgs_data = query.limit(100).all()
+        # Get total count for pagination
+        total_count = query.count()
+
+        # Apply pagination
+        offset = st.session_state.orgs_page * page_size
+        orgs_data = query.limit(page_size).offset(offset).all()
 
         # Convert to dictionaries to avoid detached instance errors
         orgs = []
@@ -248,8 +259,10 @@ def show_orgs():
         st.info("No organizations found. Load some deals first: `make load-deals`")
         return
 
-    # Display count
-    st.caption(f"Showing {len(orgs)} organizations")
+    # Display count and range
+    start_idx = offset + 1
+    end_idx = min(offset + len(orgs), total_count)
+    st.caption(f"Showing {start_idx}-{end_idx} of {total_count} organizations")
 
     # Display organizations
     for org in orgs:
@@ -370,13 +383,32 @@ def show_orgs():
                         st.session_state[f"confirm_del_{org['id']}"] = True
                         st.warning("Click again to confirm")
 
+    # Pagination controls
+    total_pages = (total_count + page_size - 1) // page_size
+    if total_pages > 1:
+        st.write("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+
+        with col1:
+            if st.button("⬅️ Previous", disabled=st.session_state.orgs_page == 0):
+                st.session_state.orgs_page -= 1
+                st.rerun()
+
+        with col2:
+            st.write(f"Page {st.session_state.orgs_page + 1} of {total_pages} (Total: {total_count} VCs)")
+
+        with col3:
+            if st.button("Next ➡️", disabled=st.session_state.orgs_page >= total_pages - 1):
+                st.session_state.orgs_page += 1
+                st.rerun()
+
 
 def show_people():
     """Show people table with actions."""
     st.header("👥 People")
 
     # Filters
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     with col1:
         search = st.text_input("Search by name", placeholder="Enter person name...")
     with col2:
@@ -389,6 +421,12 @@ def show_people():
         ])
     with col3:
         sort_by = st.selectbox("Sort by", ["Name", "Updated date", "Confidence"])
+    with col4:
+        page_size = st.selectbox("Per page", [25, 50, 100, 200], index=1, key="people_page_size")
+
+    # Initialize pagination state
+    if 'people_page' not in st.session_state:
+        st.session_state.people_page = 0
 
     # Get people
     with get_db() as db:
@@ -417,7 +455,12 @@ def show_people():
         else:
             query = query.order_by(desc(Person.telegram_confidence))
 
-        people_data = query.limit(100).all()
+        # Get total count for pagination
+        total_count = query.count()
+
+        # Apply pagination
+        offset = st.session_state.people_page * page_size
+        people_data = query.limit(page_size).offset(offset).all()
 
         # Convert to dictionaries to avoid detached instance errors
         people = []
@@ -460,7 +503,9 @@ def show_people():
     # Sort organizations alphabetically
     sorted_orgs = sorted(people_by_org.keys())
 
-    st.caption(f"Showing {len(people)} people across {len(people_by_org)} organizations")
+    start_idx = offset + 1
+    end_idx = min(offset + len(people), total_count)
+    st.caption(f"Showing {start_idx}-{end_idx} of {total_count} people across {len(people_by_org)} organizations")
 
     # Display people grouped by organization
     for org_name in sorted_orgs:
@@ -588,6 +633,25 @@ def show_people():
                                 st.session_state[f"confirm_del_person_{person['id']}"] = True
                                 st.warning("Click again to confirm")
 
+    # Pagination controls
+    total_pages = (total_count + page_size - 1) // page_size
+    if total_pages > 1:
+        st.write("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+
+        with col1:
+            if st.button("⬅️ Previous", key="people_prev", disabled=st.session_state.people_page == 0):
+                st.session_state.people_page -= 1
+                st.rerun()
+
+        with col2:
+            st.write(f"Page {st.session_state.people_page + 1} of {total_pages} (Total: {total_count} people)")
+
+        with col3:
+            if st.button("Next ➡️", key="people_next", disabled=st.session_state.people_page >= total_pages - 1):
+                st.session_state.people_page += 1
+                st.rerun()
+
 
 def show_agent_runs():
     """Show agent execution history."""
@@ -674,13 +738,19 @@ def show_deals():
     st.header("💰 Funding Deals")
 
     # Filters
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     with col1:
         search = st.text_input("Search by organization", placeholder="Enter organization name...")
     with col2:
         round_filter = st.selectbox("Round", ["All", "Seed", "Series A", "Series B", "Series C", "Series D+"])
     with col3:
         sort_by = st.selectbox("Sort by", ["Date (newest)", "Date (oldest)", "Amount (high to low)", "Amount (low to high)"])
+    with col4:
+        page_size = st.selectbox("Per page", [25, 50, 100, 200], index=1, key="deals_page_size")
+
+    # Initialize pagination state
+    if 'deals_page' not in st.session_state:
+        st.session_state.deals_page = 0
 
     # Get deals
     with get_db() as db:
@@ -706,7 +776,12 @@ def show_deals():
         else:
             query = query.order_by(Deal.amount_usd)
 
-        deals_data = query.limit(100).all()
+        # Get total count for pagination
+        total_count = query.count()
+
+        # Apply pagination
+        offset = st.session_state.deals_page * page_size
+        deals_data = query.limit(page_size).offset(offset).all()
 
         # Convert to dictionaries
         deals = []
@@ -729,8 +804,10 @@ def show_deals():
         st.info("No deals found. Load some deals first: `make load-deals`")
         return
 
-    # Display count
-    st.caption(f"Showing {len(deals)} deals")
+    # Display count and range
+    start_idx = offset + 1
+    end_idx = min(offset + len(deals), total_count)
+    st.caption(f"Showing {start_idx}-{end_idx} of {total_count} deals")
 
     # Display deals
     for deal in deals:
@@ -774,6 +851,25 @@ def show_deals():
                     st.write(source_name)
 
                 st.write(f"**Added:** {deal['created_at'].strftime('%Y-%m-%d')}")
+
+    # Pagination controls
+    total_pages = (total_count + page_size - 1) // page_size
+    if total_pages > 1:
+        st.write("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+
+        with col1:
+            if st.button("⬅️ Previous", key="deals_prev", disabled=st.session_state.deals_page == 0):
+                st.session_state.deals_page -= 1
+                st.rerun()
+
+        with col2:
+            st.write(f"Page {st.session_state.deals_page + 1} of {total_pages} (Total: {total_count} deals)")
+
+        with col3:
+            if st.button("Next ➡️", key="deals_next", disabled=st.session_state.deals_page >= total_pages - 1):
+                st.session_state.deals_page += 1
+                st.rerun()
 
 
 # Agent execution functions
