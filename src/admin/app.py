@@ -202,6 +202,21 @@ def show_orgs():
                 Evidence.screenshot_url.isnot(None)
             ).order_by(desc(Evidence.created_at)).first()
 
+            # Get deals for this organization (where they are an investor)
+            # Deals are linked to startups, VCs appear in the investors array
+            deals_data = db.query(Deal, Organization).join(
+                Organization, Deal.org_id == Organization.id
+            ).filter(
+                Deal.investors.contains([org.name])
+            ).order_by(desc(Deal.announced_on)).all()
+
+            # Get people for this organization
+            people_roles = db.query(Person, RoleEmployment).join(
+                RoleEmployment, Person.id == RoleEmployment.person_id
+            ).filter(
+                RoleEmployment.org_id == org.id
+            ).order_by(RoleEmployment.is_current.desc(), Person.full_name).all()
+
             orgs.append({
                 'id': str(org.id),
                 'name': org.name,
@@ -209,7 +224,24 @@ def show_orgs():
                 'kind': org.kind,
                 'created_at': org.created_at,
                 'people_count': people_count,
-                'screenshot': latest_screenshot[0] if latest_screenshot else None
+                'screenshot': latest_screenshot[0] if latest_screenshot else None,
+                'deals': [{
+                    'id': str(deal.id),
+                    'startup_name': startup_org.name,
+                    'round': deal.round,
+                    'amount_usd': float(deal.amount_usd) if deal.amount_usd else None,
+                    'announced_on': deal.announced_on,
+                    'investors': deal.investors
+                } for deal, startup_org in deals_data],
+                'people': [{
+                    'id': str(person.id),
+                    'full_name': person.full_name,
+                    'email': person.email,
+                    'title': role.title,
+                    'is_current': role.is_current,
+                    'socials': person.socials or {},
+                    'telegram_handle': person.telegram_handle
+                } for person, role in people_roles]
             })
 
     if not orgs:
@@ -248,6 +280,75 @@ def show_orgs():
                     except Exception as e:
                         st.caption(f"Screenshot path: {org['screenshot']}")
                         st.caption(f"(Could not load image: {e})")
+
+                # Show deals if available
+                if org['deals']:
+                    st.write("---")
+                    st.write(f"**Investments ({len(org['deals'])}):**")
+                    for deal in org['deals']:
+                        # Format amount (already in millions from the data source)
+                        if deal['amount_usd']:
+                            amount = deal['amount_usd']
+                            if amount >= 1000:
+                                amount_str = f"${amount/1000:.1f}B"
+                            else:
+                                amount_str = f"${amount:.1f}M"
+                        else:
+                            amount_str = "Amount unknown"
+
+                        # Format date
+                        date_str = deal['announced_on'].strftime('%Y-%m-%d') if deal['announced_on'] else "Date unknown"
+
+                        # Display deal with startup name
+                        round_str = deal['round'] if deal['round'] else "Funding"
+                        st.write(f"• **{deal['startup_name']}** - {round_str} - {amount_str} ({date_str})")
+
+                        # Show other investors if available
+                        if deal['investors'] and len(deal['investors']) > 1:
+                            # Filter out the current VC from the investors list
+                            other_investors = [inv for inv in deal['investors'] if inv != org['name']]
+                            if other_investors:
+                                investors_str = ", ".join(other_investors[:5])  # Show first 5
+                                if len(other_investors) > 5:
+                                    investors_str += f" +{len(other_investors) - 5} more"
+                                st.caption(f"  Co-investors: {investors_str}")
+                else:
+                    st.write("---")
+                    st.caption("No investments found")
+
+                # Show people if available
+                if org['people']:
+                    st.write("---")
+                    st.write(f"**Team Members ({len(org['people'])}):**")
+                    for person in org['people']:
+                        # Build person info line
+                        status_icon = "👤" if person['is_current'] else "🕐"
+                        person_line = f"{status_icon} **{person['full_name']}**"
+                        if person['title']:
+                            person_line += f" - {person['title']}"
+                        st.write(person_line)
+
+                        # Show socials if available
+                        socials_list = []
+                        if person['socials']:
+                            if person['socials'].get('twitter'):
+                                socials_list.append(f"[Twitter](https://twitter.com/{person['socials']['twitter']})")
+                            if person['socials'].get('linkedin'):
+                                socials_list.append(f"[LinkedIn]({person['socials']['linkedin']})")
+                            if person['socials'].get('farcaster'):
+                                socials_list.append(f"[Farcaster](https://warpcast.com/{person['socials']['farcaster']})")
+
+                        if person['telegram_handle']:
+                            socials_list.append(f"[Telegram](https://t.me/{person['telegram_handle']})")
+
+                        if person['email']:
+                            socials_list.append(f"✉️ {person['email']}")
+
+                        if socials_list:
+                            st.caption(f"  {' • '.join(socials_list)}")
+                else:
+                    st.write("---")
+                    st.caption("No team members found")
 
             with col2:
                 if st.button("🔍 Find Website", key=f"find_{org['id']}"):
