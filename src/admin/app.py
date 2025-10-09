@@ -133,18 +133,24 @@ def show_dashboard():
 
     # Quick actions
     st.subheader("Quick Actions")
+
+    st.caption("💡 These actions skip already-processed items automatically")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("🔍 Find All VC Websites", use_container_width=True):
+            st.caption("Skips VCs that already have websites")
             run_website_finder()
 
     with col2:
         if st.button("🕷️ Crawl All VCs", use_container_width=True):
+            st.caption("Skips VCs that already have team members")
             run_vc_crawler()
 
     with col3:
         if st.button("💼 Enrich All People", use_container_width=True):
+            st.caption("Skips people already enriched with socials")
             run_social_enricher()
 
 
@@ -715,7 +721,7 @@ def run_website_finder(vc_name=None):
         st.session_state.running_agents.discard(agent_key)
 
 
-def run_vc_crawler(vc_name=None):
+def run_vc_crawler(vc_name=None, skip_if_has_people=True):
     """Run VC crawler agent."""
     agent_key = f"vc_crawler_{vc_name or 'all'}"
 
@@ -752,8 +758,8 @@ def run_vc_crawler(vc_name=None):
                     st.success(f"✅ Crawler completed for {vc_name}!")
                     st.json(stats)
             else:
-                # Process all VCs
-                stats = crawler.crawl_all_vcs(limit=None)
+                # Process all VCs (with skip option)
+                stats = crawler.crawl_all_vcs(limit=None, skip_if_has_people=skip_if_has_people)
                 st.success("✅ Crawler completed for all VCs!")
                 st.json(stats)
     except Exception as e:

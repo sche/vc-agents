@@ -18,7 +18,7 @@ from pathlib import Path
 from langchain_openai import ChatOpenAI
 from loguru import logger
 from playwright.sync_api import sync_playwright
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.config import settings
 from src.db.connection import get_db
@@ -665,12 +665,13 @@ Return ONLY the JSON array (no explanation):"""
 
         return stats
 
-    def crawl_all_vcs(self, limit: int | None = None) -> dict:
+    def crawl_all_vcs(self, limit: int | None = None, skip_if_has_people: bool = True) -> dict:
         """
         Crawl all VCs in database.
 
         Args:
             limit: Maximum number of VCs to crawl (None = all)
+            skip_if_has_people: If True, skip VCs that already have team members
 
         Returns:
             Overall statistics
@@ -680,10 +681,22 @@ Return ONLY the JSON array (no explanation):"""
             stmt = select(Organization).where(Organization.kind == "vc")
             if limit:
                 stmt = stmt.limit(limit)
-            vcs_data = [
-                {"id": vc.id, "name": vc.name, "website": vc.website}
-                for vc in db.execute(stmt).scalars().all()
-            ]
+
+            all_vcs = db.execute(stmt).scalars().all()
+
+            vcs_data = []
+            for vc in all_vcs:
+                # Check if VC has team members
+                if skip_if_has_people:
+                    people_count = db.query(func.count(RoleEmployment.person_id)).filter(
+                        RoleEmployment.org_id == vc.id
+                    ).scalar() or 0
+
+                    if people_count > 0:
+                        logger.debug(f"Skipping {vc.name} - already has {people_count} team members")
+                        continue
+
+                vcs_data.append({"id": vc.id, "name": vc.name, "website": vc.website})
 
         logger.info(f"Found {len(vcs_data)} VCs to crawl")
 
