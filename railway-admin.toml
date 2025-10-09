@@ -23,3 +23,17 @@ description = "Neynar API key for Farcaster integration"
 [[environmentVariables]]
 name = "PERPLEXITY_API_KEY"
 description = "Perplexity API key for LLM integration"
+
+# Playwright configuration for Railway/containerized environments
+[[environmentVariables]]
+name = "PLAYWRIGHT_BROWSERS_PATH"
+description = "Playwright browser cache path (set to /tmp/playwright)"
+
+[[environmentVariables]]
+name = "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"
+description = "Skip browser download on pip install (set to 0 or omit)"
+
+# Railway environment hints
+[[environmentVariables]]
+name = "PYTHONUNBUFFERED"
+description = "Force Python stdout/stderr to be unbuffered (set to 1)"

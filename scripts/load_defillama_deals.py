@@ -280,8 +280,8 @@ def main():
     parser.add_argument(
         "--since-days",
         type=int,
-        default=90,
-        help="Load deals from last N days (default: 90)",
+        default=14,
+        help="Load deals from last N days (default: 14)",
     )
     parser.add_argument(
         "--limit",

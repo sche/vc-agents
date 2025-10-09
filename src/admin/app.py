@@ -10,7 +10,7 @@ import streamlit as st
 from sqlalchemy import desc, func
 
 from src.db.connection import get_db
-from src.db.models import AgentRun, Deal, Organization, Person, RoleEmployment
+from src.db.models import AgentRun, Deal, Evidence, Organization, Person, RoleEmployment
 
 # Page config
 st.set_page_config(
@@ -190,13 +190,20 @@ def show_orgs():
                 RoleEmployment.org_id == org.id
             ).scalar() or 0
 
+            # Get most recent screenshot from Evidence
+            latest_screenshot = db.query(Evidence.screenshot_url).filter(
+                Evidence.org_id == org.id,
+                Evidence.screenshot_url.isnot(None)
+            ).order_by(desc(Evidence.created_at)).first()
+
             orgs.append({
                 'id': str(org.id),
                 'name': org.name,
                 'website': org.website,
                 'kind': org.kind,
                 'created_at': org.created_at,
-                'people_count': people_count
+                'people_count': people_count,
+                'screenshot': latest_screenshot[0] if latest_screenshot else None
             })
 
     if not orgs:
@@ -226,6 +233,15 @@ def show_orgs():
                 st.write(f"**Kind:** {org['kind']}")
                 st.write(f"**Created:** {org['created_at'].strftime('%Y-%m-%d %H:%M')}")
                 st.write(f"**Team members:** {org['people_count']}")
+
+                # Show screenshot if available
+                if org['screenshot']:
+                    st.write("**Latest Screenshot:**")
+                    try:
+                        st.image(org['screenshot'], caption="Team page screenshot", use_container_width=True)
+                    except Exception as e:
+                        st.caption(f"Screenshot path: {org['screenshot']}")
+                        st.caption(f"(Could not load image: {e})")
 
             with col2:
                 if st.button("🔍 Find Website", key=f"find_{org['id']}"):
@@ -304,6 +320,12 @@ def show_people():
                 Organization, RoleEmployment.org_id == Organization.id
             ).filter(RoleEmployment.person_id == person.id).first()
 
+            # Get most recent screenshot from Evidence
+            latest_screenshot = db.query(Evidence.screenshot_url).filter(
+                Evidence.person_id == person.id,
+                Evidence.screenshot_url.isnot(None)
+            ).order_by(desc(Evidence.created_at)).first()
+
             people.append({
                 'id': str(person.id),
                 'full_name': person.full_name,
@@ -312,7 +334,8 @@ def show_people():
                 'telegram_confidence': person.telegram_confidence,
                 'updated_at': person.updated_at,
                 'org_name': role.Organization.name if role else None,
-                'title': role.RoleEmployment.title if role else None
+                'title': role.RoleEmployment.title if role else None,
+                'screenshot': latest_screenshot[0] if latest_screenshot else None
             })
 
     if not people:
@@ -420,6 +443,15 @@ def show_people():
 
                 st.write(f"**Telegram Confidence:** {person['telegram_confidence'] or 0:.2f}")
                 st.write(f"**Updated:** {person['updated_at'].strftime('%Y-%m-%d %H:%M')}")
+
+                # Show screenshot if available
+                if person['screenshot']:
+                    st.write("**Latest Screenshot:**")
+                    try:
+                        st.image(person['screenshot'], caption="Team page screenshot", use_container_width=True)
+                    except Exception as e:
+                        st.caption(f"Screenshot path: {person['screenshot']}")
+                        st.caption(f"(Could not load image: {e})")
 
             with col2:
                 if st.button("💼 Enrich", key=f"enrich_{person['id']}"):

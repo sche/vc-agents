@@ -147,9 +147,15 @@ Look for links with text like: team, about, people, partners, leadership, our te
             # Wait longer for dynamic content (JavaScript rendering)
             page.wait_for_timeout(5000)
 
-            # Take screenshot for evidence
-            screenshot_path = self.screenshot_dir / f"org_{org_id}_{datetime.now().timestamp()}.png"
-            page.screenshot(path=screenshot_path, full_page=True)
+            # Take screenshot for evidence (with error handling for Railway)
+            screenshot_path = None
+            try:
+                screenshot_path = self.screenshot_dir / f"org_{org_id}_{datetime.now().timestamp()}.png"
+                page.screenshot(path=screenshot_path, full_page=True)
+                logger.info(f"Screenshot saved: {screenshot_path}")
+            except Exception as e:
+                logger.warning(f"Failed to take screenshot (continuing anyway): {e}")
+                screenshot_path = None
 
             # Get page HTML
             html_content = page.content()
@@ -229,7 +235,7 @@ JSON array:"""
             # Add metadata
             for person in people_data:
                 person["source_url"] = team_url
-                person["screenshot_path"] = str(screenshot_path)
+                person["screenshot_path"] = str(screenshot_path) if screenshot_path else None
                 person["org_id"] = org_id
 
             return people_data
@@ -535,7 +541,20 @@ Return ONLY the JSON array (no explanation):"""
                 return stats
 
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                # Launch browser with Railway-compatible settings
+                # Disable GPU, sandbox, and shared memory to avoid crashes in containerized environments
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--disable-gpu',
+                        '--disable-dev-shm-usage',  # Use /tmp instead of /dev/shm
+                        '--disable-setuid-sandbox',
+                        '--no-sandbox',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                        '--disable-blink-features=AutomationControlled'
+                    ]
+                )
 
                 try:
                     # Find team page

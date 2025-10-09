@@ -153,6 +153,23 @@ Both will share the same Supabase database via `DATABASE_URL`.
 
 ## Troubleshooting
 
+### Playwright Browser Crashes on Railway
+
+**Error:** `Page.screenshot: Target crashed` or `ERROR:gpu/command_buffer/service/shared_image/shared_image_manager.cc`
+
+**Solution:** This is caused by GPU/shared memory issues in containerized environments. The fix has been applied to the code:
+
+1. Browser launch flags include `--disable-gpu`, `--disable-dev-shm-usage`, `--no-sandbox`
+2. Screenshot failures are handled gracefully (crawler continues without screenshots)
+3. Set these environment variables in Railway:
+   - `PYTHONUNBUFFERED=1` (for better logging)
+   - Optional: `PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright` (if needed)
+
+If you still see crashes:
+- Check Railway memory limits (upgrade to higher tier if needed)
+- Screenshots may be disabled but crawler will still extract people data
+- Perplexity fallback doesn't require browser/screenshots
+
 ### Admin won't start
 - Check Railway logs for errors
 - Ensure `DATABASE_URL` is set correctly
